@@ -36,6 +36,8 @@ type CreateLegRequest struct {
 	WebhookURL string `json:"webhook_url,omitempty"`
 	// HMAC-SHA256 signing secret for the per-leg webhook.
 	WebhookSecret string `json:"webhook_secret,omitempty"`
+	// Enable Answering Machine Detection on outbound calls. Include the object (even empty) to enable with defaults; omit to disable.
+	AMD interface{} `json:"amd,omitempty"`
 }
 
 // DTMFRequest is a d t m f request.
@@ -130,6 +132,22 @@ type VAPIAgentRequest struct {
 type AgentMessageRequest struct {
 	// Context or instruction to inject into the running agent session.
 	Message string `json:"message"`
+}
+
+// AMDParams is a a m d params.
+type AMDParams struct {
+	// Max milliseconds of silence before declaring no_speech.
+	InitialSilenceTimeout int `json:"initial_silence_timeout,omitempty"`
+	// Speech duration threshold (ms) above which answerer is classified as machine.
+	GreetingDuration int `json:"greeting_duration,omitempty"`
+	// Silence duration (ms) after initial speech to declare human.
+	AfterGreetingSilence int `json:"after_greeting_silence,omitempty"`
+	// Max analysis window in milliseconds.
+	TotalAnalysisTime int `json:"total_analysis_time,omitempty"`
+	// Minimum speech burst duration (ms) to count as a word.
+	MinimumWordLength int `json:"minimum_word_length,omitempty"`
+	// Max time (ms) to wait for the voicemail beep after machine detection. 0 or omitted = disabled.
+	BeepTimeout int `json:"beep_timeout,omitempty"`
 }
 
 // RecordingRequest is a recording request.

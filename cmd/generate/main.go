@@ -1,9 +1,12 @@
-// Command generate reads VoiceBlender's openapi.yaml and writes three Go
-// source files into the library root:
+// Command generate reads VoiceBlender's openapi.yaml and writes Go source
+// files into the library root:
 //
 //   - models.go    — Leg, Room, Webhook structs + LegType/LegState/WebhookEventType enums
 //   - requests.go  — all *Request and supporting types (PlaybackRequest excluded)
 //   - responses.go — all *Response types from the spec
+//   - legs.go      — Client methods for /legs endpoints
+//   - rooms.go     — Client methods for /rooms endpoints
+//   - webrtc.go    — Client methods for /webrtc endpoints
 //
 // PlaybackRequest (url/tone mutual exclusion + custom MarshalJSON) is kept in
 // the hand-maintained playback.go and is not touched by this tool.
@@ -24,6 +27,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -67,7 +71,66 @@ type Schema struct {
 	Format               string       `yaml:"format"`
 }
 
+// ── Path/Operation YAML types ────────────────────────────────────────────────
+
+// PathItem represents an OpenAPI Path Item Object.
+type PathItem struct {
+	Get    *Operation `yaml:"get"`
+	Post   *Operation `yaml:"post"`
+	Put    *Operation `yaml:"put"`
+	Patch  *Operation `yaml:"patch"`
+	Delete *Operation `yaml:"delete"`
+}
+
+// Operation represents an OpenAPI Operation Object.
+type Operation struct {
+	OperationID string         `yaml:"operationId"`
+	Summary     string         `yaml:"summary"`
+	Tags        []string       `yaml:"tags"`
+	RequestBody *OpRequestBody `yaml:"requestBody"`
+	Responses   map[string]*OpResponse `yaml:"responses"`
+}
+
+// OpRequestBody represents an OpenAPI Request Body Object.
+type OpRequestBody struct {
+	Content map[string]*OpMedia `yaml:"content"`
+}
+
+// OpMedia represents an OpenAPI Media Type Object.
+type OpMedia struct {
+	Schema *Schema `yaml:"schema"`
+}
+
+// OpResponse represents an OpenAPI Response Object.
+type OpResponse struct {
+	Content map[string]*OpMedia `yaml:"content"`
+}
+
+// orderedPaths unmarshals the paths mapping while preserving document order.
+type orderedPaths struct {
+	keys []string
+	vals map[string]*PathItem
+}
+
+func (op *orderedPaths) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node for paths, got %v", n.Kind)
+	}
+	op.vals = make(map[string]*PathItem)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i].Value
+		var v PathItem
+		if err := n.Content[i+1].Decode(&v); err != nil {
+			return fmt.Errorf("path %q: %w", k, err)
+		}
+		op.keys = append(op.keys, k)
+		op.vals[k] = &v
+	}
+	return nil
+}
+
 type openAPISpec struct {
+	Paths      orderedPaths `yaml:"paths"`
 	Components struct {
 		Schemas map[string]*Schema `yaml:"schemas"`
 	} `yaml:"components"`
@@ -80,7 +143,7 @@ var abbrevs = map[string]string{
 	"id": "ID", "url": "URL", "uri": "URI", "sdp": "SDP",
 	"tts": "TTS", "stt": "STT", "dtmf": "DTMF", "sip": "SIP",
 	"api": "API", "s3": "S3", "ice": "ICE", "rtc": "RTC",
-	"webrtc": "WebRTC",
+	"webrtc": "WebRTC", "amd": "AMD",
 }
 
 // toCamel converts snake_case or camelCase to idiomatic Go CamelCase.
@@ -132,9 +195,9 @@ var fieldTypeOverrides = map[string]map[string]string{
 	// optional WebRTC parameters. usernameFragment is a standard WebRTC field
 	// not present in the VoiceBlender spec but required for full ICE support.
 	"ICECandidateInit": {
-		"sdpMid":            "*string",
-		"sdpMLineIndex":     "*uint16",
-		"usernameFragment":  "*string",
+		"sdpMid":           "*string",
+		"sdpMLineIndex":    "*uint16",
+		"usernameFragment": "*string",
 	},
 	// auth is an inline object schema; surface it as the extracted *SIPAuth type.
 	"CreateLegRequest": {
@@ -357,6 +420,7 @@ func genRequests(schemas map[string]*Schema) []byte {
 		"PipecatAgentRequest",
 		"VAPIAgentRequest",
 		"AgentMessageRequest",
+		"AMDParams",
 		"RecordingRequest",
 		"WebRTCOfferRequest",
 		"RoomCreateRequest",
@@ -399,6 +463,287 @@ func genResponses(schemas map[string]*Schema) []byte {
 			continue
 		}
 		genStruct(&b, name, s)
+	}
+
+	return fmtGo(b.Bytes())
+}
+
+// ── Client method generation from paths ──────────────────────────────────────
+
+// opInfo holds everything needed to generate a Client method.
+type opInfo struct {
+	operationID string
+	httpMethod  string // "GET", "POST", etc.
+	path        string // URL path template e.g. "/legs/{id}/amd"
+	summary     string
+	tag         string   // first tag
+	reqType     string   // Go request type (empty = no body)
+	respType    string   // Go response type (without * or [])
+	respSlice   bool     // true if response is []Type
+	pathParams  []string // e.g. ["id", "playbackID"]
+}
+
+var pathParamRe = regexp.MustCompile(`\{(\w+)\}`)
+
+// extractPathParams returns parameter names from a path template.
+func extractPathParams(path string) []string {
+	matches := pathParamRe.FindAllStringSubmatch(path, -1)
+	var params []string
+	for _, m := range matches {
+		params = append(params, m[1])
+	}
+	return params
+}
+
+// buildGoPath converts "/legs/{id}/play/{playbackID}" into Go expression:
+// "/legs/"+id+"/play/"+playbackID
+func buildGoPath(path string) string {
+	parts := pathParamRe.Split(path, -1)
+	params := pathParamRe.FindAllStringSubmatch(path, -1)
+	var b strings.Builder
+	for i, lit := range parts {
+		if i > 0 {
+			b.WriteString("+" + params[i-1][1])
+			if lit != "" {
+				b.WriteString("+")
+			}
+		}
+		if lit != "" {
+			b.WriteString(fmt.Sprintf("%q", lit))
+		}
+	}
+	return b.String()
+}
+
+// httpMethodConst maps lowercase HTTP verbs to net/http constants.
+var httpMethodConst = map[string]string{
+	"GET":    "http.MethodGet",
+	"POST":   "http.MethodPost",
+	"PUT":    "http.MethodPut",
+	"PATCH":  "http.MethodPatch",
+	"DELETE": "http.MethodDelete",
+}
+
+// methodNameOverrides: operationId → Go method name (when toCamel is wrong).
+var methodNameOverrides = map[string]string{
+	"agentLegElevenLabs":  "ElevenLabsAgentLeg",
+	"agentLegVAPI":        "VAPIAgentLeg",
+	"agentLegPipecat":     "PipecatAgentLeg",
+	"agentLegDeepgram":    "DeepgramAgentLeg",
+	"agentLegMessage":     "AgentMessageLeg",
+	"agentRoomElevenLabs": "ElevenLabsAgentRoom",
+	"agentRoomVAPI":       "VAPIAgentRoom",
+	"agentRoomPipecat":    "PipecatAgentRoom",
+	"agentRoomDeepgram":   "DeepgramAgentRoom",
+	"agentRoomMessage":    "AgentMessageRoom",
+}
+
+// responseTypeOverrides: operationId → Go response type.
+// Used when the spec says StatusResponse but the server returns a richer type
+// defined in hand-maintained responses_extra.go.
+var responseTypeOverrides = map[string]string{
+	"playLeg":          "PlaybackResponse",
+	"ttsLeg":           "TTSResponse",
+	"recordLeg":        "RecordingResponse",
+	"stopRecordLeg":    "RecordingResponse",
+	"playRoom":         "PlaybackResponse",
+	"ttsRoom":          "TTSResponse",
+	"recordRoom":       "RecordingResponse",
+	"stopRecordRoom":   "RecordingResponse",
+	"addLegToRoom":     "AddLegResponse",
+	"webrtcOffer":      "WebRTCOfferResponse",
+	"getICECandidates": "ICECandidatesResponse",
+}
+
+// requestTypeOverrides: operationId → Go request type.
+// Used when the spec doesn't include a requestBody but the client sends one.
+var requestTypeOverrides = map[string]string{
+	"addICECandidate": "ICECandidateInit",
+}
+
+// skipOperations are not generated (websocket, observability, etc.).
+var skipOperations = map[string]bool{
+	"wsRoom":          true,
+	"getMetrics":      true,
+	"pprofIndex":      true,
+	"pprofCPU":        true,
+	"pprofHeap":       true,
+	"pprofGoroutine":  true,
+}
+
+// tagFile maps an OpenAPI tag to the output Go filename.
+var tagFile = map[string]string{
+	"Legs":   "legs.go",
+	"Rooms":  "rooms.go",
+	"WebRTC": "webrtc.go",
+}
+
+// extractOps walks the parsed paths and returns operations grouped by tag.
+func extractOps(paths orderedPaths) []opInfo {
+	var ops []opInfo
+
+	for _, path := range paths.keys {
+		item := paths.vals[path]
+
+		type methodOp struct {
+			verb string
+			op   *Operation
+		}
+		// Iterate methods in a stable order.
+		for _, mo := range []methodOp{
+			{"GET", item.Get},
+			{"POST", item.Post},
+			{"PUT", item.Put},
+			{"PATCH", item.Patch},
+			{"DELETE", item.Delete},
+		} {
+			if mo.op == nil {
+				continue
+			}
+			op := mo.op
+			if skipOperations[op.OperationID] {
+				continue
+			}
+			if len(op.Tags) == 0 {
+				continue
+			}
+			tag := op.Tags[0]
+			if _, ok := tagFile[tag]; !ok {
+				continue
+			}
+
+			info := opInfo{
+				operationID: op.OperationID,
+				httpMethod:  mo.verb,
+				path:        path,
+				summary:     op.Summary,
+				tag:         tag,
+				pathParams:  extractPathParams(path),
+			}
+
+			// Request body type.
+			if override, ok := requestTypeOverrides[op.OperationID]; ok {
+				info.reqType = override
+			} else if op.RequestBody != nil {
+				if media, ok := op.RequestBody.Content["application/json"]; ok && media.Schema != nil {
+					if media.Schema.Ref != "" {
+						info.reqType = goTypeName(deref(media.Schema.Ref))
+					}
+				}
+			}
+
+			// Response type.
+			if override, ok := responseTypeOverrides[op.OperationID]; ok {
+				info.respType = override
+			} else {
+				// Check 200 then 201 response.
+				for _, code := range []string{"200", "201"} {
+					resp, ok := op.Responses[code]
+					if !ok || resp.Content == nil {
+						continue
+					}
+					media, ok := resp.Content["application/json"]
+					if !ok || media.Schema == nil {
+						continue
+					}
+					s := media.Schema
+					if s.Type == "array" && s.Items != nil && s.Items.Ref != "" {
+						info.respType = goTypeName(deref(s.Items.Ref))
+						info.respSlice = true
+					} else if s.Ref != "" {
+						info.respType = goTypeName(deref(s.Ref))
+					} else {
+						info.respType = "StatusResponse"
+					}
+					break
+				}
+				if info.respType == "" {
+					info.respType = "StatusResponse"
+				}
+			}
+
+			ops = append(ops, info)
+		}
+	}
+	return ops
+}
+
+// goMethodName returns the Go method name for an operation.
+func goMethodName(opID string) string {
+	if name, ok := methodNameOverrides[opID]; ok {
+		return name
+	}
+	return toCamel(opID)
+}
+
+// genClientFile generates a Go source file with Client methods for ops.
+func genClientFile(ops []opInfo) []byte {
+	var b bytes.Buffer
+	b.WriteString(generatedHeader)
+	b.WriteString("package voiceblender\n\n")
+	b.WriteString("import (\n")
+	b.WriteString("\t\"context\"\n")
+	b.WriteString("\t\"net/http\"\n")
+	b.WriteString(")\n\n")
+
+	for _, op := range ops {
+		methodName := goMethodName(op.operationID)
+
+		// Build godoc comment.
+		if op.summary != "" {
+			fmt.Fprintf(&b, "// %s %s\n", methodName, strings.ToLower(op.summary[:1])+op.summary[1:])
+		}
+
+		// Build function signature.
+		var sigParams []string
+		sigParams = append(sigParams, "ctx context.Context")
+		for _, p := range op.pathParams {
+			sigParams = append(sigParams, p+" string")
+		}
+		if op.reqType != "" {
+			sigParams = append(sigParams, "req "+op.reqType)
+		}
+
+		var retType string
+		if op.respSlice {
+			retType = "[]" + op.respType
+		} else {
+			retType = "*" + op.respType
+		}
+
+		fmt.Fprintf(&b, "func (c *Client) %s(%s) (%s, error) {\n",
+			methodName, strings.Join(sigParams, ", "), retType)
+
+		// Body encoding.
+		if op.reqType != "" {
+			b.WriteString("\tbody, err := encodeJSON(req)\n")
+			b.WriteString("\tif err != nil {\n")
+			b.WriteString("\t\treturn nil, err\n")
+			b.WriteString("\t}\n")
+		}
+
+		// Variable declaration.
+		if op.respSlice {
+			fmt.Fprintf(&b, "\tvar out []%s\n", op.respType)
+		} else {
+			fmt.Fprintf(&b, "\tvar out %s\n", op.respType)
+		}
+
+		// Return statement.
+		goPath := buildGoPath(op.path)
+		bodyArg := "nil"
+		if op.reqType != "" {
+			bodyArg = "body"
+		}
+		mc := httpMethodConst[op.httpMethod]
+
+		if op.respSlice {
+			fmt.Fprintf(&b, "\treturn out, c.do(ctx, %s, %s, %s, &out)\n", mc, goPath, bodyArg)
+		} else {
+			fmt.Fprintf(&b, "\treturn &out, c.do(ctx, %s, %s, %s, &out)\n", mc, goPath, bodyArg)
+		}
+
+		b.WriteString("}\n\n")
 	}
 
 	return fmtGo(b.Bytes())
@@ -447,7 +792,24 @@ func main() {
 
 	schemas := spec.Components.Schemas
 
+	// Generate type files.
 	write(filepath.Join(*out, "models.go"), genModels(schemas))
 	write(filepath.Join(*out, "requests.go"), genRequests(schemas))
 	write(filepath.Join(*out, "responses.go"), genResponses(schemas))
+
+	// Generate client method files from paths.
+	allOps := extractOps(spec.Paths)
+
+	// Group by tag → file.
+	grouped := make(map[string][]opInfo)
+	for _, op := range allOps {
+		grouped[op.tag] = append(grouped[op.tag], op)
+	}
+	for tag, file := range tagFile {
+		ops, ok := grouped[tag]
+		if !ok {
+			continue
+		}
+		write(filepath.Join(*out, file), genClientFile(ops))
+	}
 }
