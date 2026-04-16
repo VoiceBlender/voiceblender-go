@@ -103,6 +103,18 @@ func (c *Client) StopRecordRoom(ctx context.Context, id string) (*RecordingRespo
 	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id+"/record", nil, &out)
 }
 
+// PauseRecordRoom pause a room recording
+func (c *Client) PauseRecordRoom(ctx context.Context, id string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/record/pause", nil, &out)
+}
+
+// ResumeRecordRoom resume a paused room recording
+func (c *Client) ResumeRecordRoom(ctx context.Context, id string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/record/resume", nil, &out)
+}
+
 // STTRoom start speech-to-text on all room participants
 func (c *Client) STTRoom(ctx context.Context, id string, req STTRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)

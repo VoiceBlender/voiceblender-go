@@ -38,6 +38,16 @@ type CreateLegRequest struct {
 	WebhookSecret string `json:"webhook_secret,omitempty"`
 	// Enable Answering Machine Detection on outbound calls. Include the object (even empty) to enable with defaults; omit to disable.
 	AMD interface{} `json:"amd,omitempty"`
+	// If false, this leg will not receive DTMF digits broadcast from other legs in the same room. Defaults to true.
+	AcceptDTMF bool `json:"accept_dtmf,omitempty"`
+}
+
+// TransferRequest is a transfer request.
+type TransferRequest struct {
+	// SIP URI to transfer the call to (e.g. "sip:bob@example.com").
+	Target string `json:"target"`
+	// ID of an existing connected SIP leg whose dialog should be replaced (attended transfer). Omit for blind transfer.
+	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
 }
 
 // DTMFRequest is a d t m f request.
@@ -190,6 +200,12 @@ type CreateRoomRequest struct {
 type AddLegRequest struct {
 	// ID of the leg to add.
 	LegID string `json:"leg_id"`
+	// If set, apply this mute state to the leg atomically before it joins the mixer (no race where un-muted audio enters the mix). Omit to leave current state untouched (useful when moving between rooms).
+	Mute bool `json:"mute,omitempty"`
+	// If set, apply this deaf state to the leg atomically before it joins the mixer. Omit to leave current state untouched.
+	Deaf bool `json:"deaf,omitempty"`
+	// If set, control whether this leg receives DTMF digits broadcast from other legs in the same room. Omit to leave current state untouched (default for new legs is true).
+	AcceptDTMF bool `json:"accept_dtmf,omitempty"`
 }
 
 // ICECandidateInit is a WebRTC ICE candidate initialisation struct.

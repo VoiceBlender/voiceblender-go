@@ -71,6 +71,16 @@ func (c *Client) UnholdLeg(ctx context.Context, id string) (*StatusResponse, err
 	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/hold", nil, &out)
 }
 
+// TransferLeg transfer a SIP leg via REFER (asynchronous)
+func (c *Client) TransferLeg(ctx context.Context, id string, req TransferRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/transfer", body, &out)
+}
+
 // SendDTMF send DTMF digits on a leg
 func (c *Client) SendDTMF(ctx context.Context, id string, req DTMFRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
@@ -79,6 +89,18 @@ func (c *Client) SendDTMF(ctx context.Context, id string, req DTMFRequest) (*Sta
 	}
 	var out StatusResponse
 	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/dtmf", body, &out)
+}
+
+// AcceptDTMFLeg enable DTMF reception on a leg
+func (c *Client) AcceptDTMFLeg(ctx context.Context, id string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/dtmf/accept", nil, &out)
+}
+
+// RejectDTMFLeg disable DTMF reception on a leg
+func (c *Client) RejectDTMFLeg(ctx context.Context, id string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/dtmf/reject", nil, &out)
 }
 
 // PlayLeg start audio playback to a leg
@@ -131,6 +153,18 @@ func (c *Client) RecordLeg(ctx context.Context, id string, req RecordingRequest)
 func (c *Client) StopRecordLeg(ctx context.Context, id string) (*RecordingResponse, error) {
 	var out RecordingResponse
 	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/record", nil, &out)
+}
+
+// PauseRecordLeg pause a leg recording
+func (c *Client) PauseRecordLeg(ctx context.Context, id string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/record/pause", nil, &out)
+}
+
+// ResumeRecordLeg resume a paused leg recording
+func (c *Client) ResumeRecordLeg(ctx context.Context, id string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/record/resume", nil, &out)
 }
 
 // STTLeg start real-time speech-to-text on a leg

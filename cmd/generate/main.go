@@ -411,6 +411,7 @@ func genRequests(schemas map[string]*Schema) []byte {
 	// a standard WebRTC field absent from the spec).
 	requestSchemas := []string{
 		"CreateLegRequest",
+		"TransferRequest",
 		"DTMFRequest",
 		"VolumeRequest",
 		"TTSRequest",

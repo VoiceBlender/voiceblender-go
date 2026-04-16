@@ -78,6 +78,20 @@ const (
 	EventRecordingStarted WebhookEventType = "recording.started"
 	// EventRecordingFinished is the "recording.finished" WebhookEventType value.
 	EventRecordingFinished WebhookEventType = "recording.finished"
+	// EventRecordingPaused is the "recording.paused" WebhookEventType value.
+	EventRecordingPaused WebhookEventType = "recording.paused"
+	// EventRecordingResumed is the "recording.resumed" WebhookEventType value.
+	EventRecordingResumed WebhookEventType = "recording.resumed"
+	// EventLegTransferInitiated is the "leg.transfer_initiated" WebhookEventType value.
+	EventLegTransferInitiated WebhookEventType = "leg.transfer_initiated"
+	// EventLegTransferRequested is the "leg.transfer_requested" WebhookEventType value.
+	EventLegTransferRequested WebhookEventType = "leg.transfer_requested"
+	// EventLegTransferProgress is the "leg.transfer_progress" WebhookEventType value.
+	EventLegTransferProgress WebhookEventType = "leg.transfer_progress"
+	// EventLegTransferCompleted is the "leg.transfer_completed" WebhookEventType value.
+	EventLegTransferCompleted WebhookEventType = "leg.transfer_completed"
+	// EventLegTransferFailed is the "leg.transfer_failed" WebhookEventType value.
+	EventLegTransferFailed WebhookEventType = "leg.transfer_failed"
 	// EventRoomCreated is the "room.created" WebhookEventType value.
 	EventRoomCreated WebhookEventType = "room.created"
 	// EventRoomDeleted is the "room.deleted" WebhookEventType value.
@@ -110,6 +124,8 @@ type Leg struct {
 	Muted bool `json:"muted"`
 	// Whether the leg is deaf (cannot hear others).
 	Deaf bool `json:"deaf"`
+	// Whether the leg receives DTMF digits broadcast from other legs in the same room. Defaults to true.
+	AcceptDTMF bool `json:"accept_dtmf"`
 	// Whether the call is on hold (SIP legs only).
 	Held bool `json:"held"`
 	// X-* headers from the inbound INVITE. Only present on sip_inbound legs.
