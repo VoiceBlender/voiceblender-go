@@ -62,6 +62,11 @@ and agent capabilities as legs, plus participant management (add/remove legs).
 
 SDP offer/answer exchange and ICE candidate management.
 
+### Events (VSI)
+
+Real-time event streaming over WebSocket with typed Go structs for all 30
+event types, automatic ping/pong handling, and a `ParseEvent` dispatcher.
+
 ## Client options
 
 ```go
@@ -103,6 +108,108 @@ c.PlayLeg(ctx, legID, voiceblender.PlayURL("https://example.com/audio.wav"))
 c.PlayLeg(ctx, legID, voiceblender.PlayTone("440", 5))
 ```
 
+## Real-time events (VSI WebSocket)
+
+The VoiceBlender Streaming Interface (VSI) delivers all events over a
+WebSocket connection as typed Go structs. This is an alternative to HTTP
+webhooks and is useful for long-running processes that need to react to events
+in real time.
+
+### Listening for events
+
+```go
+stream, err := c.Events(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+defer stream.Close()
+
+for {
+    ev, err := stream.Next(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    switch e := ev.(type) {
+    case *voiceblender.LegRingingEvent:
+        fmt.Printf("Leg %s is ringing (from=%s)\n", e.LegID, e.From)
+
+    case *voiceblender.LegConnectedEvent:
+        fmt.Printf("Leg %s connected\n", e.LegID)
+
+    case *voiceblender.LegDisconnectedEvent:
+        fmt.Printf("Leg %s disconnected: %s (%.1fs)\n",
+            e.LegID, e.Cdr.Reason, e.Cdr.DurationTotal)
+
+    case *voiceblender.DTMFReceivedEvent:
+        fmt.Printf("DTMF digit %s on leg %s\n", e.Digit, e.LegID)
+
+    case *voiceblender.STTTextEvent:
+        if e.IsFinal {
+            fmt.Printf("[%s] %s\n", e.LegID, e.Text)
+        }
+    }
+}
+```
+
+### Filtering events by app ID
+
+The VSI stream delivers all events for the instance. Use the `AppID` field on
+legs and rooms to filter events relevant to your application:
+
+```go
+leg, _ := c.CreateLeg(ctx, voiceblender.CreateLegRequest{
+    Type:  voiceblender.LegTypeSIPOutbound,
+    URI:   "sip:alice@example.com",
+    AppID: "my-app",
+})
+
+// In the event loop:
+switch e := ev.(type) {
+case *voiceblender.LegConnectedEvent:
+    if e.AppID != "my-app" {
+        continue
+    }
+    // handle event
+}
+```
+
+### Call quality monitoring
+
+The `LegDisconnectedEvent` includes CDR and RTP quality metrics:
+
+```go
+case *voiceblender.LegDisconnectedEvent:
+    fmt.Printf("Call %s ended: reason=%s total=%.1fs answered=%.1fs\n",
+        e.LegID, e.Cdr.Reason, e.Cdr.DurationTotal, e.Cdr.DurationAnswered)
+
+    if e.Quality != nil {
+        fmt.Printf("  MOS=%.2f loss=%d jitter=%.1fms\n",
+            e.Quality.MosScore, e.Quality.RtpPacketsLost, e.Quality.RtpJitterMs)
+    }
+```
+
+### Transfer tracking
+
+Track the full lifecycle of a SIP REFER transfer:
+
+```go
+case *voiceblender.LegTransferInitiatedEvent:
+    fmt.Printf("Transfer started: leg=%s target=%s kind=%s\n",
+        e.LegID, e.Target, e.Kind)
+
+case *voiceblender.LegTransferProgressEvent:
+    fmt.Printf("Transfer progress: leg=%s status=%d %s\n",
+        e.LegID, e.StatusCode, e.Reason)
+
+case *voiceblender.LegTransferCompletedEvent:
+    fmt.Printf("Transfer completed: leg=%s\n", e.LegID)
+
+case *voiceblender.LegTransferFailedEvent:
+    fmt.Printf("Transfer failed: leg=%s reason=%s error=%s\n",
+        e.LegID, e.Reason, e.Error)
+```
+
 ## Examples
 
 See the [`examples/`](examples/) directory for complete working examples:
@@ -113,7 +220,8 @@ See the [`examples/`](examples/) directory for complete working examples:
 
 ## Code generation
 
-Models, request types, and response types are generated from `openapi.yaml`:
+Models, request types, response types, and event types are generated from
+`openapi.yaml`:
 
 ```bash
 make generate   # regenerate from OpenAPI spec
