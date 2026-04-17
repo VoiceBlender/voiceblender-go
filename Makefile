@@ -11,6 +11,7 @@ generate:
 	cd cmd/generate && go mod tidy && go run . \
 		-openapi $(abspath $(OPENAPI)) \
 		-out $(abspath .)
+	go fmt ./...
 	$(MAKE) vet
 
 build:

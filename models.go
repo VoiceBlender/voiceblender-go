@@ -2,6 +2,8 @@
 
 package voiceblender
 
+import "encoding/json"
+
 // LegType identifies the type of a voice leg.
 type LegType string
 
@@ -108,6 +110,9 @@ const (
 	EventAgentAgentResponse WebhookEventType = "agent.agent_response"
 )
 
+// ChannelInfo is referenced in the spec but not fully defined; use json.RawMessage to decode.
+type ChannelInfo = json.RawMessage
+
 // Leg is a leg.
 type Leg struct {
 	// Instance identifier.
@@ -128,6 +133,8 @@ type Leg struct {
 	AcceptDTMF bool `json:"accept_dtmf"`
 	// Whether the call is on hold (SIP legs only).
 	Held bool `json:"held"`
+	// Application identifier for event stream filtering.
+	AppID string `json:"app_id,omitempty"`
 	// X-* headers from the inbound INVITE. Only present on sip_inbound legs.
 	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
 }
@@ -138,6 +145,8 @@ type Room struct {
 	InstanceID string `json:"instance_id,omitempty"`
 	// Room identifier.
 	ID string `json:"id"`
+	// Application identifier for event stream filtering.
+	AppID string `json:"app_id,omitempty"`
 	// Legs currently in this room.
 	Participants []Leg `json:"participants"`
 }

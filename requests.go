@@ -40,6 +40,8 @@ type CreateLegRequest struct {
 	AMD interface{} `json:"amd,omitempty"`
 	// If false, this leg will not receive DTMF digits broadcast from other legs in the same room. Defaults to true.
 	AcceptDTMF bool `json:"accept_dtmf,omitempty"`
+	// Application identifier. Carried through to all events for this leg. Use to filter the WebSocket event stream by app.
+	AppID string `json:"app_id,omitempty"`
 }
 
 // TransferRequest is a transfer request.
@@ -194,6 +196,8 @@ type CreateRoomRequest struct {
 	WebhookURL string `json:"webhook_url,omitempty"`
 	// HMAC-SHA256 signing secret for the per-room webhook.
 	WebhookSecret string `json:"webhook_secret,omitempty"`
+	// Application identifier. Carried through to all events for this room. Use to filter the WebSocket event stream by app.
+	AppID string `json:"app_id,omitempty"`
 }
 
 // AddLegRequest is a add leg request.

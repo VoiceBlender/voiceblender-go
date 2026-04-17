@@ -4,6 +4,7 @@
 //   - models.go    — Leg, Room, Webhook structs + LegType/LegState/WebhookEventType enums
 //   - requests.go  — all *Request and supporting types (PlaybackRequest excluded)
 //   - responses.go — all *Response types from the spec
+//   - events.go    — typed event structs from x-webhooks + ParseEvent dispatcher
 //   - legs.go      — Client methods for /legs endpoints
 //   - rooms.go     — Client methods for /rooms endpoints
 //   - webrtc.go    — Client methods for /webrtc endpoints
@@ -66,9 +67,11 @@ type Schema struct {
 	Enum                 []string     `yaml:"enum"`
 	Items                *Schema      `yaml:"items"`
 	Ref                  string       `yaml:"$ref"`
+	AllOf                []*Schema    `yaml:"allOf"`
 	AdditionalProperties *Schema      `yaml:"additionalProperties"`
 	Description          string       `yaml:"description"`
 	Format               string       `yaml:"format"`
+	Nullable             bool         `yaml:"nullable"`
 }
 
 // ── Path/Operation YAML types ────────────────────────────────────────────────
@@ -129,8 +132,32 @@ func (op *orderedPaths) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// orderedWebhooks unmarshals x-webhooks while preserving document order.
+type orderedWebhooks struct {
+	keys []string
+	vals map[string]*PathItem
+}
+
+func (ow *orderedWebhooks) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node for x-webhooks, got %v", n.Kind)
+	}
+	ow.vals = make(map[string]*PathItem)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i].Value
+		var v PathItem
+		if err := n.Content[i+1].Decode(&v); err != nil {
+			return fmt.Errorf("webhook %q: %w", k, err)
+		}
+		ow.keys = append(ow.keys, k)
+		ow.vals[k] = &v
+	}
+	return nil
+}
+
 type openAPISpec struct {
-	Paths      orderedPaths `yaml:"paths"`
+	Paths      orderedPaths    `yaml:"paths"`
+	XWebhooks  orderedWebhooks `yaml:"x-webhooks"`
 	Components struct {
 		Schemas map[string]*Schema `yaml:"schemas"`
 	} `yaml:"components"`
@@ -364,6 +391,7 @@ func genModels(schemas map[string]*Schema) []byte {
 	var b bytes.Buffer
 	b.WriteString(generatedHeader)
 	b.WriteString("package voiceblender\n\n")
+	b.WriteString("import \"encoding/json\"\n\n")
 
 	// LegType — derived from Leg.properties.type.enum
 	genEnum(&b, "LegType", "LegType", "identifies the type of a voice leg.",
@@ -378,6 +406,14 @@ func genModels(schemas map[string]*Schema) []byte {
 	// WebhookEventType — top-level string enum schema.
 	genEnum(&b, "WebhookEventType", "Event", "is the type of a webhook event.",
 		schemas["WebhookEventType"].Enum)
+
+	// Type alias for schemas referenced but not fully defined in the spec.
+	for _, name := range []string{"ChannelInfo"} {
+		if _, ok := schemas[name]; !ok {
+			fmt.Fprintf(&b, "// %s is referenced in the spec but not fully defined; use json.RawMessage to decode.\n", name)
+			fmt.Fprintf(&b, "type %s = json.RawMessage\n\n", name)
+		}
+	}
 
 	// Core resource structs.
 	for _, name := range []string{"Leg", "Room"} {
@@ -465,6 +501,177 @@ func genResponses(schemas map[string]*Schema) []byte {
 		}
 		genStruct(&b, name, s)
 	}
+
+	return fmtGo(b.Bytes())
+}
+
+// ── Event type generation from x-webhooks ────────────────────────────────────
+
+// webhookEventInfo holds the parsed data for one x-webhook entry.
+type webhookEventInfo struct {
+	eventName string // e.g. "leg.ringing"
+	summary   string
+	props     orderedProps
+	required  map[string]bool
+}
+
+// eventTypeName converts "leg.ringing" → "LegRingingEvent".
+func eventTypeName(name string) string {
+	return toCamel(strings.NewReplacer(".", "_", "-", "_").Replace(name)) + "Event"
+}
+
+// extractWebhooks parses x-webhooks into a slice of webhookEventInfo.
+func extractWebhooks(wh orderedWebhooks) []webhookEventInfo {
+	var events []webhookEventInfo
+	for _, name := range wh.keys {
+		item := wh.vals[name]
+		op := item.Post
+		if op == nil {
+			continue
+		}
+		if op.RequestBody == nil {
+			continue
+		}
+		media, ok := op.RequestBody.Content["application/json"]
+		if !ok || media.Schema == nil {
+			continue
+		}
+		s := media.Schema
+
+		info := webhookEventInfo{
+			eventName: name,
+			summary:   op.Summary,
+			required:  make(map[string]bool),
+		}
+
+		// The schema is allOf: [WebhookEvent ref, inline properties].
+		// We only want the inline properties (skip $ref entries).
+		for _, part := range s.AllOf {
+			if part.Ref != "" {
+				continue
+			}
+			info.props = part.Properties
+			for _, r := range part.Required {
+				info.required[r] = true
+			}
+		}
+
+		events = append(events, info)
+	}
+	return events
+}
+
+// genNestedStruct generates an inline struct type string for an object property.
+func genNestedStruct(s *Schema) string {
+	var b strings.Builder
+	b.WriteString("struct {\n")
+	reqSet := make(map[string]bool, len(s.Required))
+	for _, r := range s.Required {
+		reqSet[r] = true
+	}
+	for _, prop := range s.Properties.keys {
+		ps := s.Properties.vals[prop]
+		fieldName := toCamel(prop)
+		fieldType := goType(ps)
+		if ps.Type == "object" && ps.Properties.keys != nil {
+			fieldType = genNestedStruct(ps)
+		}
+		tag := prop
+		if !reqSet[prop] {
+			tag += ",omitempty"
+		}
+		if ps.Description != "" {
+			fmt.Fprintf(&b, "\t\t// %s\n", ensurePeriod(ps.Description))
+		}
+		fmt.Fprintf(&b, "\t\t%s %s `json:%q`\n", fieldName, fieldType, tag)
+	}
+	b.WriteString("\t}")
+	return b.String()
+}
+
+func genEvents(webhooks orderedWebhooks) []byte {
+	events := extractWebhooks(webhooks)
+	if len(events) == 0 {
+		return nil
+	}
+
+	var b bytes.Buffer
+	b.WriteString(generatedHeader)
+	b.WriteString("package voiceblender\n\n")
+	b.WriteString("import (\n")
+	b.WriteString("\t\"encoding/json\"\n")
+	b.WriteString("\t\"fmt\"\n")
+	b.WriteString("\t\"time\"\n")
+	b.WriteString(")\n\n")
+
+	// Base Event struct matching WebhookEvent schema.
+	b.WriteString("// Event is the base envelope for all webhook/WebSocket events.\n")
+	b.WriteString("type Event struct {\n")
+	b.WriteString("\tType       WebhookEventType `json:\"type\"`\n")
+	b.WriteString("\tTimestamp  time.Time         `json:\"timestamp\"`\n")
+	b.WriteString("\tInstanceID string            `json:\"instance_id,omitempty\"`\n")
+	b.WriteString("}\n\n")
+
+	// Per-event structs.
+	for _, ev := range events {
+		typeName := eventTypeName(ev.eventName)
+		if ev.summary != "" {
+			fmt.Fprintf(&b, "// %s is fired when: %s\n", typeName, strings.ToLower(ev.summary[:1])+ev.summary[1:])
+		}
+		fmt.Fprintf(&b, "type %s struct {\n", typeName)
+		b.WriteString("\tEvent\n")
+
+		for _, prop := range ev.props.keys {
+			ps := ev.props.vals[prop]
+			fieldName := toCamel(prop)
+			fieldType := goType(ps)
+
+			// Handle nested object properties with known structure.
+			if ps.Type == "object" && ps.Properties.keys != nil {
+				if ps.Nullable {
+					fieldType = "*" + genNestedStruct(ps)
+				} else {
+					fieldType = genNestedStruct(ps)
+				}
+			}
+
+			tag := prop
+			if !ev.required[prop] {
+				tag += ",omitempty"
+			}
+			if ps.Description != "" {
+				fmt.Fprintf(&b, "\t// %s\n", ensurePeriod(ps.Description))
+			}
+			fmt.Fprintf(&b, "\t%s %s `json:%q`\n", fieldName, fieldType, tag)
+		}
+
+		b.WriteString("}\n\n")
+	}
+
+	// ParseEvent unmarshals raw JSON into the correct typed event struct.
+	b.WriteString("// ParseEvent unmarshals raw JSON into the appropriate typed event struct.\n")
+	b.WriteString("func ParseEvent(data []byte) (interface{}, error) {\n")
+	b.WriteString("\tvar base Event\n")
+	b.WriteString("\tif err := json.Unmarshal(data, &base); err != nil {\n")
+	b.WriteString("\t\treturn nil, fmt.Errorf(\"parse event envelope: %w\", err)\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tswitch base.Type {\n")
+
+	for _, ev := range events {
+		typeName := eventTypeName(ev.eventName)
+		constName := "Event" + toCamel(strings.NewReplacer(".", "_", "-", "_").Replace(ev.eventName))
+		fmt.Fprintf(&b, "\tcase %s:\n", constName)
+		fmt.Fprintf(&b, "\t\tvar e %s\n", typeName)
+		b.WriteString("\t\tif err := json.Unmarshal(data, &e); err != nil {\n")
+		b.WriteString("\t\t\treturn nil, err\n")
+		b.WriteString("\t\t}\n")
+		b.WriteString("\t\treturn &e, nil\n")
+	}
+
+	b.WriteString("\tdefault:\n")
+	b.WriteString("\t\treturn &base, nil\n")
+	b.WriteString("\t}\n")
+	b.WriteString("}\n")
 
 	return fmtGo(b.Bytes())
 }
@@ -565,6 +772,7 @@ var requestTypeOverrides = map[string]string{
 // skipOperations are not generated (websocket, observability, etc.).
 var skipOperations = map[string]bool{
 	"wsRoom":          true,
+	"vsi":             true,
 	"getMetrics":      true,
 	"pprofIndex":      true,
 	"pprofCPU":        true,
@@ -797,6 +1005,9 @@ func main() {
 	write(filepath.Join(*out, "models.go"), genModels(schemas))
 	write(filepath.Join(*out, "requests.go"), genRequests(schemas))
 	write(filepath.Join(*out, "responses.go"), genResponses(schemas))
+	if evData := genEvents(spec.XWebhooks); evData != nil {
+		write(filepath.Join(*out, "events.go"), evData)
+	}
 
 	// Generate client method files from paths.
 	allOps := extractOps(spec.Paths)
