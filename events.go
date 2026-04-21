@@ -116,6 +116,20 @@ type LegUnmutedEvent struct {
 	AppID string `json:"app_id,omitempty"`
 }
 
+// LegDeafEvent is fired when: leg deafened (stops receiving room audio)
+type LegDeafEvent struct {
+	Event
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+}
+
+// LegUndeafEvent is fired when: leg undeafened (resumes receiving room audio)
+type LegUndeafEvent struct {
+	Event
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+}
+
 // LegHoldEvent is fired when: leg put on hold (local or remote)
 type LegHoldEvent struct {
 	Event
@@ -435,6 +449,32 @@ type AgentAgentResponseEvent struct {
 	Text string `json:"text,omitempty"`
 }
 
+// AMDResultEvent is fired when: answering machine detection completed
+type AMDResultEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+	// Detection result: human, machine, no_speech, or not_sure.
+	Result string `json:"result,omitempty"`
+	// Milliseconds of silence before first speech.
+	InitialSilenceMs int `json:"initial_silence_ms,omitempty"`
+	// Milliseconds of speech in the greeting.
+	GreetingDurationMs int `json:"greeting_duration_ms,omitempty"`
+	// Total milliseconds of analysis before determination.
+	TotalAnalysisMs int `json:"total_analysis_ms,omitempty"`
+}
+
+// AMDBeepEvent is fired when: voicemail beep tone detected after machine classification
+type AMDBeepEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+	// Milliseconds from machine detection to beep tone detection.
+	BeepMs int `json:"beep_ms,omitempty"`
+}
+
 // ParseEvent unmarshals raw JSON into the appropriate typed event struct.
 func ParseEvent(data []byte) (interface{}, error) {
 	var base Event
@@ -486,6 +526,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventLegUnmuted:
 		var e LegUnmutedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegDeaf:
+		var e LegDeafEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegUndeaf:
+		var e LegUndeafEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
@@ -648,6 +700,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventAgentAgentResponse:
 		var e AgentAgentResponseEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventAMDResult:
+		var e AMDResultEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventAMDBeep:
+		var e AMDBeepEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

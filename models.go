@@ -54,6 +54,10 @@ const (
 	EventLegMuted WebhookEventType = "leg.muted"
 	// EventLegUnmuted is the "leg.unmuted" WebhookEventType value.
 	EventLegUnmuted WebhookEventType = "leg.unmuted"
+	// EventLegDeaf is the "leg.deaf" WebhookEventType value.
+	EventLegDeaf WebhookEventType = "leg.deaf"
+	// EventLegUndeaf is the "leg.undeaf" WebhookEventType value.
+	EventLegUndeaf WebhookEventType = "leg.undeaf"
 	// EventLegHold is the "leg.hold" WebhookEventType value.
 	EventLegHold WebhookEventType = "leg.hold"
 	// EventLegUnhold is the "leg.unhold" WebhookEventType value.
@@ -108,6 +112,10 @@ const (
 	EventAgentUserTranscript WebhookEventType = "agent.user_transcript"
 	// EventAgentAgentResponse is the "agent.agent_response" WebhookEventType value.
 	EventAgentAgentResponse WebhookEventType = "agent.agent_response"
+	// EventAMDResult is the "amd.result" WebhookEventType value.
+	EventAMDResult WebhookEventType = "amd.result"
+	// EventAMDBeep is the "amd.beep" WebhookEventType value.
+	EventAMDBeep WebhookEventType = "amd.beep"
 )
 
 // ChannelInfo is referenced in the spec but not fully defined; use json.RawMessage to decode.
@@ -147,6 +155,8 @@ type Room struct {
 	ID string `json:"id"`
 	// Application identifier for event stream filtering.
 	AppID string `json:"app_id,omitempty"`
+	// Mixer sample rate in Hz (8000, 16000, or 48000).
+	SampleRate int `json:"sample_rate"`
 	// Legs currently in this room.
 	Participants []Leg `json:"participants"`
 }

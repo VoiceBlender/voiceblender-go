@@ -198,6 +198,8 @@ type CreateRoomRequest struct {
 	WebhookSecret string `json:"webhook_secret,omitempty"`
 	// Application identifier. Carried through to all events for this room. Use to filter the WebSocket event stream by app.
 	AppID string `json:"app_id,omitempty"`
+	// Mixer sample rate in Hz. Allowed values: 8000, 16000, 48000. Default: 16000.
+	SampleRate int `json:"sample_rate,omitempty"`
 }
 
 // AddLegRequest is a add leg request.
