@@ -37,11 +37,19 @@ type CreateLegRequest struct {
 	// HMAC-SHA256 signing secret for the per-leg webhook.
 	WebhookSecret string `json:"webhook_secret,omitempty"`
 	// Enable Answering Machine Detection on outbound calls. Include the object (even empty) to enable with defaults; omit to disable.
-	AMD interface{} `json:"amd,omitempty"`
+	AMD *AMDParams `json:"amd,omitempty"`
 	// If false, this leg will not receive DTMF digits broadcast from other legs in the same room. Defaults to true.
-	AcceptDTMF bool `json:"accept_dtmf,omitempty"`
+	AcceptDTMF *bool `json:"accept_dtmf,omitempty"`
 	// Application identifier. Carried through to all events for this leg. Use to filter the WebSocket event stream by app.
 	AppID string `json:"app_id,omitempty"`
+	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
+	SpeechDetection *bool `json:"speech_detection,omitempty"`
+}
+
+// AnswerLegRequest is a answer leg request.
+type AnswerLegRequest struct {
+	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
+	SpeechDetection *bool `json:"speech_detection,omitempty"`
 }
 
 // TransferRequest is a transfer request.
@@ -207,11 +215,11 @@ type AddLegRequest struct {
 	// ID of the leg to add.
 	LegID string `json:"leg_id"`
 	// If set, apply this mute state to the leg atomically before it joins the mixer (no race where un-muted audio enters the mix). Omit to leave current state untouched (useful when moving between rooms).
-	Mute bool `json:"mute,omitempty"`
+	Mute *bool `json:"mute,omitempty"`
 	// If set, apply this deaf state to the leg atomically before it joins the mixer. Omit to leave current state untouched.
-	Deaf bool `json:"deaf,omitempty"`
+	Deaf *bool `json:"deaf,omitempty"`
 	// If set, control whether this leg receives DTMF digits broadcast from other legs in the same room. Omit to leave current state untouched (default for new legs is true).
-	AcceptDTMF bool `json:"accept_dtmf,omitempty"`
+	AcceptDTMF *bool `json:"accept_dtmf,omitempty"`
 }
 
 // ICECandidateInit is a WebRTC ICE candidate initialisation struct.

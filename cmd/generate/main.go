@@ -227,8 +227,24 @@ var fieldTypeOverrides = map[string]map[string]string{
 		"usernameFragment": "*string",
 	},
 	// auth is an inline object schema; surface it as the extracted *SIPAuth type.
+	// amd and the boolean tri-state fields need pointer types so callers can
+	// distinguish "unset / use server default" from an explicit zero value.
 	"CreateLegRequest": {
-		"auth": "*SIPAuth",
+		"auth":             "*SIPAuth",
+		"amd":              "*AMDParams",
+		"accept_dtmf":      "*bool",
+		"speech_detection": "*bool",
+	},
+	"AnswerLegRequest": {
+		"speech_detection": "*bool",
+	},
+	// All three AddLegRequest booleans are tri-state: "Omit to leave current
+	// state untouched" — so callers need to distinguish unset from an explicit
+	// false.
+	"AddLegRequest": {
+		"mute":        "*bool",
+		"deaf":        "*bool",
+		"accept_dtmf": "*bool",
 	},
 	// settings is a deeply nested JSON object (not flat string map).
 	"DeepgramAgentRequest": {
@@ -447,6 +463,7 @@ func genRequests(schemas map[string]*Schema) []byte {
 	// a standard WebRTC field absent from the spec).
 	requestSchemas := []string{
 		"CreateLegRequest",
+		"AnswerLegRequest",
 		"TransferRequest",
 		"DTMFRequest",
 		"VolumeRequest",

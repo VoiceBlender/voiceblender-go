@@ -36,9 +36,13 @@ func (c *Client) DeleteLeg(ctx context.Context, id string) (*StatusResponse, err
 }
 
 // AnswerLeg answer a ringing or early-media inbound SIP leg
-func (c *Client) AnswerLeg(ctx context.Context, id string) (*StatusResponse, error) {
+func (c *Client) AnswerLeg(ctx context.Context, id string, req AnswerLegRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/answer", nil, &out)
+	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/answer", body, &out)
 }
 
 // EarlyMediaLeg enable early media on a ringing inbound SIP leg

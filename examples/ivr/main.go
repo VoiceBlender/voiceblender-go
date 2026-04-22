@@ -232,7 +232,7 @@ func (a *app) onRinging(legID string) {
 	}
 
 	a.log.Info("cmd", "action", "answer_leg", "leg_id", legID)
-	if _, err := a.client.AnswerLeg(ctx, legID); err != nil {
+	if _, err := a.client.AnswerLeg(ctx, legID, voiceblender.AnswerLegRequest{}); err != nil {
 		a.log.Error("answer leg", "leg_id", legID, "error", err)
 		a.calls.Delete(legID)
 	}
