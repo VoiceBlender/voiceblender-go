@@ -14,6 +14,10 @@ const (
 	LegTypeSIPOutbound LegType = "sip_outbound"
 	// LegTypeWebRTC is the "webrtc" LegType value.
 	LegTypeWebRTC LegType = "webrtc"
+	// LegTypeWhatsappIn is the "whatsapp_in" LegType value.
+	LegTypeWhatsappIn LegType = "whatsapp_in"
+	// LegTypeWhatsappOut is the "whatsapp_out" LegType value.
+	LegTypeWhatsappOut LegType = "whatsapp_out"
 )
 
 // LegState is the current state of a leg.

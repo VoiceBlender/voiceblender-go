@@ -14,8 +14,10 @@ type SIPAuth struct {
 type CreateLegRequest struct {
 	// Leg type.
 	Type string `json:"type"`
-	// SIP URI to dial.
-	URI string `json:"uri"`
+	// Destination. For sip legs, a SIP URI (e.g. "sip:alice@example.com"). For whatsapp legs, an E.164 phone number (with or without '+').
+	To string `json:"to,omitempty"`
+	// Deprecated alias for `to` (sip legs only). Prefer `to`.
+	URI string `json:"uri,omitempty"`
 	// Caller ID — sets the user part of the SIP From header (e.g. "+15551234567", "alice").
 	From string `json:"from,omitempty"`
 	// SIP Privacy header value (e.g. "id", "none").
@@ -30,7 +32,7 @@ type CreateLegRequest struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	// Room ID to auto-add the leg to once media is ready (early_media or connected). If the room does not exist, it is automatically created.
 	RoomID string `json:"room_id,omitempty"`
-	// SIP digest authentication credentials. If the remote challenges with 401/407, sipgo will retry with these credentials.
+	// Digest auth credentials. Required for whatsapp legs (Meta-issued password; username defaults to `from` with '+' stripped). Optional for sip legs (sipgo retries on 401/407 challenge).
 	Auth *SIPAuth `json:"auth,omitempty"`
 	// Route all events for this leg exclusively to this URL instead of global webhooks.
 	WebhookURL string `json:"webhook_url,omitempty"`
