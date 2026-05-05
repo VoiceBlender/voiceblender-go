@@ -96,6 +96,40 @@ func (s *EventStream) Next(ctx context.Context) (interface{}, error) {
 	}
 }
 
+// PipeTo runs Next in a loop and dispatches every event into the client's
+// internal hub so that *Sync methods (e.g. Leg.PlayTTSSync) can be unblocked.
+// It blocks until ctx is cancelled or the stream errors, and returns that
+// error. Typical usage is to start it in a goroutine alongside the main flow:
+//
+//	stream, _ := client.Events(ctx)
+//	go stream.PipeTo(ctx, client)
+func (s *EventStream) PipeTo(ctx context.Context, c *Client) error {
+	for {
+		ev, err := s.Next(ctx)
+		if err != nil {
+			return err
+		}
+		c.DeliverEvent(ev)
+	}
+}
+
+// RunEventStream is a convenience that opens a VSI WebSocket EventStream and
+// pumps its events into the client's hub. It blocks until ctx is cancelled
+// or the stream errors. Equivalent to:
+//
+//	s, err := c.Events(ctx, opts...)
+//	if err != nil { return err }
+//	defer s.Close()
+//	return s.PipeTo(ctx, c)
+func (c *Client) RunEventStream(ctx context.Context, opts ...EventStreamOption) error {
+	s, err := c.Events(ctx, opts...)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.PipeTo(ctx, c)
+}
+
 // Close gracefully closes the WebSocket connection by sending a stop message.
 func (s *EventStream) Close() error {
 	s.mu.Lock()

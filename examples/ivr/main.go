@@ -212,27 +212,29 @@ func (a *app) onRinging(legID string) {
 	c := &call{legID: legID, state: stateGreeting}
 	a.calls.Store(legID, c)
 
+	leg := a.client.Leg(legID)
+
 	// Enable early media so we can play audio before answering.
 	a.log.Info("cmd", "action", "early_media", "leg_id", legID)
-	if _, err := a.client.EarlyMediaLeg(ctx, legID); err != nil {
+	if _, err := leg.EarlyMedia(ctx, voiceblender.EarlyMediaLegRequest{}); err != nil {
 		a.log.Warn("early media not available, answering immediately", "leg_id", legID, "error", err)
 	} else {
 		// Play UK ringback for 3 seconds then stop it before answering.
 		a.log.Info("cmd", "action", "play_leg", "leg_id", legID, "tone", "gb_ringback")
-		pb, err := a.client.PlayLeg(ctx, legID, voiceblender.PlayTone("gb_ringback"))
+		pb, err := leg.Play(ctx, voiceblender.PlayTone("gb_ringback"))
 		if err != nil {
 			a.log.Warn("play ringback", "leg_id", legID, "error", err)
 		} else {
 			time.Sleep(3 * time.Second)
 			a.log.Info("cmd", "action", "stop_play_leg", "leg_id", legID, "playback_id", pb.PlaybackID)
-			if _, err := a.client.StopPlayLeg(ctx, legID, pb.PlaybackID); err != nil && !voiceblender.IsNotFound(err) {
+			if _, err := leg.StopPlay(ctx, pb.PlaybackID); err != nil && !voiceblender.IsNotFound(err) {
 				a.log.Warn("stop ringback", "leg_id", legID, "error", err)
 			}
 		}
 	}
 
 	a.log.Info("cmd", "action", "answer_leg", "leg_id", legID)
-	if _, err := a.client.AnswerLeg(ctx, legID, voiceblender.AnswerLegRequest{}); err != nil {
+	if _, err := leg.Answer(ctx, voiceblender.AnswerLegRequest{}); err != nil {
 		a.log.Error("answer leg", "leg_id", legID, "error", err)
 		a.calls.Delete(legID)
 	}
@@ -298,7 +300,7 @@ func (a *app) onTTSFinished(legID, ttsID string) {
 		if roomID != "" && holdPlaybackID != "" {
 			ctx := context.Background()
 			a.log.Info("cmd", "action", "volume_play_room", "room", roomID, "playback_id", holdPlaybackID, "volume", 0)
-			if _, err := a.client.VolumePlayRoom(ctx, roomID, holdPlaybackID, voiceblender.VolumeRequest{Volume: 0}); err != nil && !voiceblender.IsNotFound(err) {
+			if _, err := a.client.Room(roomID).VolumePlay(ctx, holdPlaybackID, voiceblender.VolumeRequest{Volume: 0}); err != nil && !voiceblender.IsNotFound(err) {
 				a.log.Warn("restore hold music volume", "room", roomID, "error", err)
 			}
 		}
@@ -321,7 +323,7 @@ func (a *app) onTTSFinished(legID, ttsID string) {
 		// Goodbye done — hang up.
 		ctx := context.Background()
 		a.log.Info("cmd", "action", "delete_leg", "leg_id", legID)
-		if _, err := a.client.DeleteLeg(ctx, legID); err != nil && !voiceblender.IsNotFound(err) {
+		if _, err := a.client.Leg(legID).Hangup(ctx, voiceblender.DeleteLegRequest{}); err != nil && !voiceblender.IsNotFound(err) {
 			a.log.Error("delete leg", "leg_id", legID, "error", err)
 		}
 	}
@@ -385,8 +387,10 @@ func (a *app) routeToDepartment(ctx context.Context, legID, roomID, displayName 
 	c.state = stateRouted
 	c.mu.Unlock()
 
+	room := a.client.Room(roomID)
+
 	a.log.Info("cmd", "action", "add_leg_to_room", "leg_id", legID, "room", roomID)
-	resp, err := a.client.AddLegToRoom(ctx, roomID, voiceblender.AddLegRequest{LegID: legID})
+	resp, err := room.AddLeg(ctx, voiceblender.AddLegRequest{LegID: legID})
 	if err != nil {
 		a.log.Error("add leg to room", "leg_id", legID, "room", roomID, "error", err)
 		c.mu.Lock()
@@ -409,7 +413,7 @@ func (a *app) routeToDepartment(ctx context.Context, legID, roomID, displayName 
 	a.log.Info("cmd", "action", "play_room", "room", roomID, "url", holdMusicURL)
 	holdReq := voiceblender.PlayURL(holdMusicURL, "audio/mpeg")
 	holdReq.Repeat = -1 // loop indefinitely
-	holdPB, err := a.client.PlayRoom(ctx, roomID, holdReq)
+	holdPB, err := room.Play(ctx, holdReq)
 	if err != nil {
 		a.log.Warn("play hold music", "room", roomID, "error", err)
 	} else {
@@ -435,9 +439,10 @@ func (a *app) routeToAgent(ctx context.Context, legID string) {
 	c.mu.Unlock()
 
 	const roomID = "operator"
+	room := a.client.Room(roomID)
 
 	a.log.Info("cmd", "action", "add_leg_to_room", "leg_id", legID, "room", roomID)
-	resp, err := a.client.AddLegToRoom(ctx, roomID, voiceblender.AddLegRequest{LegID: legID})
+	resp, err := room.AddLeg(ctx, voiceblender.AddLegRequest{LegID: legID})
 	if err != nil {
 		a.log.Error("add leg to room", "leg_id", legID, "room", roomID, "error", err)
 		c.mu.Lock()
@@ -483,7 +488,7 @@ func (a *app) routeToAgent(ctx context.Context, legID string) {
 	}
 
 	a.log.Info("cmd", "action", "deepgram_agent_room", "room", roomID)
-	if _, err := a.client.DeepgramAgentRoom(ctx, roomID, agentReq); err != nil {
+	if _, err := room.DeepgramAgent(ctx, agentReq); err != nil {
 		a.log.Error("attach agent", "room", roomID, "error", err)
 	}
 }
@@ -533,9 +538,11 @@ func (a *app) speak(legID, text string) {
 	holdPlaybackID := c.holdPlaybackID
 	c.mu.Unlock()
 
+	leg := a.client.Leg(legID)
+
 	if prev != "" {
 		a.log.Info("cmd", "action", "stop_play_leg", "leg_id", legID, "tts_id", prev)
-		if _, err := a.client.StopPlayLeg(ctx, legID, prev); err != nil && !voiceblender.IsNotFound(err) {
+		if _, err := leg.StopPlay(ctx, prev); err != nil && !voiceblender.IsNotFound(err) {
 			a.log.Warn("stop previous tts", "leg_id", legID, "tts_id", prev, "error", err)
 		}
 	}
@@ -543,13 +550,13 @@ func (a *app) speak(legID, text string) {
 	// Duck hold music while TTS plays (-3 steps ≈ -9 dB).
 	if roomID != "" && holdPlaybackID != "" {
 		a.log.Info("cmd", "action", "volume_play_room", "room", roomID, "playback_id", holdPlaybackID, "volume", -6)
-		if _, err := a.client.VolumePlayRoom(ctx, roomID, holdPlaybackID, voiceblender.VolumeRequest{Volume: -6}); err != nil && !voiceblender.IsNotFound(err) {
+		if _, err := a.client.Room(roomID).VolumePlay(ctx, holdPlaybackID, voiceblender.VolumeRequest{Volume: -6}); err != nil && !voiceblender.IsNotFound(err) {
 			a.log.Warn("duck hold music", "room", roomID, "error", err)
 		}
 	}
 
 	a.log.Info("cmd", "action", "tts_leg", "leg_id", legID, "text", text)
-	resp, err := a.client.TTSLeg(ctx, legID, voiceblender.TTSRequest{
+	resp, err := leg.PlayTTS(ctx, voiceblender.TTSRequest{
 		Text:     text,
 		Voice:    a.ttsVoice,
 		Provider: a.ttsProvider,

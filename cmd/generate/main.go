@@ -346,7 +346,10 @@ func genEnum(b *bytes.Buffer, typeName, constPrefix, description string, values 
 	fmt.Fprintf(b, ")\n\n")
 }
 
-func genStruct(b *bytes.Buffer, schemaName string, s *Schema) {
+// genStruct emits a Go struct for the given schema. extraFields are appended
+// verbatim before the closing brace (e.g. unexported fields not present in the
+// OpenAPI spec, like the back-reference to *Client on Leg/Room).
+func genStruct(b *bytes.Buffer, schemaName string, s *Schema, extraFields ...string) {
 	typeName := goTypeName(schemaName)
 	reqSet := make(map[string]bool, len(s.Required))
 	for _, r := range s.Required {
@@ -398,6 +401,9 @@ func genStruct(b *bytes.Buffer, schemaName string, s *Schema) {
 
 		fmt.Fprintf(b, "\t%s %s `json:%q`\n", fieldName, fieldType, tag)
 	}
+	for _, ef := range extraFields {
+		fmt.Fprintf(b, "\t%s\n", ef)
+	}
 	fmt.Fprintf(b, "}\n\n")
 }
 
@@ -424,21 +430,24 @@ func genModels(schemas map[string]*Schema) []byte {
 		schemas["WebhookEventType"].Enum)
 
 	// Type alias for schemas referenced but not fully defined in the spec.
-	for _, name := range []string{"ChannelInfo"} {
+	for _, name := range []string{"ChannelInfo", "OfferedCodec"} {
 		if _, ok := schemas[name]; !ok {
 			fmt.Fprintf(&b, "// %s is referenced in the spec but not fully defined; use json.RawMessage to decode.\n", name)
 			fmt.Fprintf(&b, "type %s = json.RawMessage\n\n", name)
 		}
 	}
 
-	// Core resource structs.
+	// Core resource structs. Leg and Room carry an unexported back-reference to
+	// the *Client that produced them so receiver methods (l.Mute, r.Play, etc.)
+	// can issue HTTP calls without the caller threading the client through.
+	// The field is unexported and has no JSON tag, so encoding/json ignores it.
 	for _, name := range []string{"Leg", "Room"} {
 		s, ok := schemas[name]
 		if !ok {
 			log.Printf("warning: schema %q not found, skipping", name)
 			continue
 		}
-		genStruct(&b, name, s)
+		genStruct(&b, name, s, "client *Client")
 	}
 
 	return fmtGo(b.Bytes())
@@ -464,6 +473,8 @@ func genRequests(schemas map[string]*Schema) []byte {
 	requestSchemas := []string{
 		"CreateLegRequest",
 		"AnswerLegRequest",
+		"EarlyMediaLegRequest",
+		"DeleteLegRequest",
 		"TransferRequest",
 		"DTMFRequest",
 		"VolumeRequest",
@@ -705,7 +716,36 @@ type opInfo struct {
 	reqType     string   // Go request type (empty = no body)
 	respType    string   // Go response type (without * or [])
 	respSlice   bool     // true if response is []Type
-	pathParams  []string // e.g. ["id", "playbackID"]
+	pathParams  []string // path params after applying receiver scope (e.g. ["playbackID"])
+	// receiver = "Leg", "Room", or "" (= Client). When non-empty, the first
+	// {id} in the path is consumed by the receiver's ID field and the method
+	// is generated with the matching pointer receiver.
+	receiver string
+}
+
+// resourceScope inspects a path and decides whether the operation belongs on
+// a *Leg, *Room, or stays on *Client. It returns the receiver type ("Leg",
+// "Room", or "") and the slice of path params remaining after the leading
+// resource ID is consumed by the receiver. For "/legs/{id}/play/{playbackID}"
+// it returns ("Leg", ["playbackID"]); for "/legs" it returns ("", nil).
+func resourceScope(path string, params []string) (string, []string) {
+	scopes := []struct {
+		prefix string
+		recv   string
+	}{
+		{"/legs/{id}", "Leg"},
+		{"/rooms/{id}", "Room"},
+	}
+	for _, sc := range scopes {
+		if path == sc.prefix || strings.HasPrefix(path, sc.prefix+"/") {
+			rest := []string{}
+			if len(params) > 0 {
+				rest = append(rest, params[1:]...)
+			}
+			return sc.recv, rest
+		}
+	}
+	return "", params
 }
 
 var pathParamRe = regexp.MustCompile(`\{(\w+)\}`)
@@ -720,15 +760,24 @@ func extractPathParams(path string) []string {
 	return params
 }
 
-// buildGoPath converts "/legs/{id}/play/{playbackID}" into Go expression:
-// "/legs/"+id+"/play/"+playbackID
-func buildGoPath(path string) string {
+// buildGoPath converts a path template into a Go expression that concatenates
+// literals with parameter expressions. Path params are referenced by their
+// name unless overridden via subs (e.g. {"id": "l.ID"} for receiver methods).
+//
+//	"/legs/{id}/play/{playbackID}", nil          → "/legs/"+id+"/play/"+playbackID
+//	"/legs/{id}/mute", {"id": "l.ID"}            → "/legs/"+l.ID+"/mute"
+func buildGoPath(path string, subs map[string]string) string {
 	parts := pathParamRe.Split(path, -1)
 	params := pathParamRe.FindAllStringSubmatch(path, -1)
 	var b strings.Builder
 	for i, lit := range parts {
 		if i > 0 {
-			b.WriteString("+" + params[i-1][1])
+			name := params[i-1][1]
+			expr := name
+			if sub, ok := subs[name]; ok {
+				expr = sub
+			}
+			b.WriteString("+" + expr)
 			if lit != "" {
 				b.WriteString("+")
 			}
@@ -749,18 +798,80 @@ var httpMethodConst = map[string]string{
 	"DELETE": "http.MethodDelete",
 }
 
-// methodNameOverrides: operationId → Go method name (when toCamel is wrong).
+// methodNameOverrides: operationId → Go method name (when toCamel is wrong
+// or when the Leg/Room suffix should be dropped for receiver methods).
+//
+// Methods scoped to /legs/{id}/... and /rooms/{id}/... are emitted on *Leg
+// and *Room respectively, so the trailing "Leg"/"Room" in the operationId is
+// redundant — strip it here. Operations on *Client (no ID in path) keep
+// their full names (e.g. createLeg → CreateLeg, listRooms → ListRooms).
 var methodNameOverrides = map[string]string{
-	"agentLegElevenLabs":  "ElevenLabsAgentLeg",
-	"agentLegVAPI":        "VAPIAgentLeg",
-	"agentLegPipecat":     "PipecatAgentLeg",
-	"agentLegDeepgram":    "DeepgramAgentLeg",
-	"agentLegMessage":     "AgentMessageLeg",
-	"agentRoomElevenLabs": "ElevenLabsAgentRoom",
-	"agentRoomVAPI":       "VAPIAgentRoom",
-	"agentRoomPipecat":    "PipecatAgentRoom",
-	"agentRoomDeepgram":   "DeepgramAgentRoom",
-	"agentRoomMessage":    "AgentMessageRoom",
+	// Leg-scoped: drop "Leg" suffix.
+	"deleteLeg":          "Hangup",
+	"answerLeg":          "Answer",
+	"earlyMediaLeg":      "EarlyMedia",
+	"ringLeg":            "Ring",
+	"muteLeg":            "Mute",
+	"unmuteLeg":          "Unmute",
+	"holdLeg":            "Hold",
+	"unholdLeg":          "Unhold",
+	"transferLeg":        "Transfer",
+	// "Accept" / "Reject" would collide with the Leg.AcceptDTMF data field; use
+	// the toggle verbs instead.
+	"acceptDTMFLeg": "EnableDTMF",
+	"rejectDTMFLeg": "DisableDTMF",
+	"playLeg":            "Play",
+	"volumePlayLeg":      "VolumePlay",
+	"stopPlayLeg":        "StopPlay",
+	"ttsLeg":             "PlayTTS",
+	"recordLeg":          "Record",
+	"stopRecordLeg":      "StopRecord",
+	"pauseRecordLeg":     "PauseRecord",
+	"resumeRecordLeg":    "ResumeRecord",
+	"sttLeg":             "STT",
+	"stopSTTLeg":         "StopSTT",
+	"stopAgentLeg":       "StopAgent",
+	"startAMDLeg":        "StartAMD",
+	"agentLegElevenLabs": "ElevenLabsAgent",
+	"agentLegVAPI":       "VAPIAgent",
+	"agentLegPipecat":    "PipecatAgent",
+	"agentLegDeepgram":   "DeepgramAgent",
+	"agentLegMessage":    "AgentMessage",
+
+	// Room-scoped: drop "Room" suffix.
+	"deleteRoom":          "Delete",
+	"addLegToRoom":        "AddLeg",
+	"removeLegFromRoom":   "RemoveLeg",
+	"playRoom":            "Play",
+	"volumePlayRoom":      "VolumePlay",
+	"stopPlayRoom":        "StopPlay",
+	"ttsRoom":             "PlayTTS",
+	"recordRoom":          "Record",
+	"stopRecordRoom":      "StopRecord",
+	"pauseRecordRoom":     "PauseRecord",
+	"resumeRecordRoom":    "ResumeRecord",
+	"sttRoom":             "STT",
+	"stopSTTRoom":         "StopSTT",
+	"stopAgentRoom":       "StopAgent",
+	"agentRoomElevenLabs": "ElevenLabsAgent",
+	"agentRoomVAPI":       "VAPIAgent",
+	"agentRoomPipecat":    "PipecatAgent",
+	"agentRoomDeepgram":   "DeepgramAgent",
+	"agentRoomMessage":    "AgentMessage",
+
+	// Other Leg-scoped operationIds that don't carry the suffix
+	// (sendDTMF, getICECandidates, addICECandidate) keep their toCamel default
+	// and become methods on *Leg automatically: SendDTMF, GetICECandidates,
+	// AddICECandidate.
+}
+
+// forceClientReceiver: operationIds whose path matches a resource scope but
+// which should still be emitted as a Client method (not on *Leg / *Room).
+// getLeg and getRoom are the canonical "fetch resource by ID" calls, so they
+// stay on *Client where callers naturally invoke them with just the ID.
+var forceClientReceiver = map[string]bool{
+	"getLeg":  true,
+	"getRoom": true,
 }
 
 // responseTypeOverrides: operationId → Go response type.
@@ -838,13 +949,20 @@ func extractOps(paths orderedPaths) []opInfo {
 				continue
 			}
 
+			allParams := extractPathParams(path)
+			recv, restParams := resourceScope(path, allParams)
+			if forceClientReceiver[op.OperationID] {
+				recv = ""
+				restParams = allParams
+			}
 			info := opInfo{
 				operationID: op.OperationID,
 				httpMethod:  mo.verb,
 				path:        path,
 				summary:     op.Summary,
 				tag:         tag,
-				pathParams:  extractPathParams(path),
+				pathParams:  restParams,
+				receiver:    recv,
 			}
 
 			// Request body type.
@@ -902,7 +1020,11 @@ func goMethodName(opID string) string {
 	return toCamel(opID)
 }
 
-// genClientFile generates a Go source file with Client methods for ops.
+// genClientFile generates a Go source file with methods for ops. Each op
+// becomes either a method on *Leg, *Room, or *Client depending on its path
+// scope (see resourceScope). Methods returning *Leg / *Room / []Leg / []Room
+// also populate the unexported client back-reference on the result so the
+// returned object can be used to make further API calls.
 func genClientFile(ops []opInfo) []byte {
 	var b bytes.Buffer
 	b.WriteString(generatedHeader)
@@ -914,6 +1036,33 @@ func genClientFile(ops []opInfo) []byte {
 
 	for _, op := range ops {
 		methodName := goMethodName(op.operationID)
+
+		// Receiver-specific shorthand: which Go expression replaces {id} in the
+		// path, what the receiver/client expression is, and the function header.
+		var (
+			recvVar    string
+			clientExpr string
+			pathSubs   map[string]string
+			receiver   string
+		)
+		switch op.receiver {
+		case "Leg":
+			recvVar = "l"
+			clientExpr = "l.client"
+			pathSubs = map[string]string{"id": "l.ID"}
+			receiver = "(l *Leg)"
+		case "Room":
+			recvVar = "r"
+			clientExpr = "r.client"
+			pathSubs = map[string]string{"id": "r.ID"}
+			receiver = "(r *Room)"
+		default:
+			recvVar = "c"
+			clientExpr = "c"
+			pathSubs = nil
+			receiver = "(c *Client)"
+		}
+		_ = recvVar
 
 		// Build godoc comment.
 		if op.summary != "" {
@@ -937,8 +1086,8 @@ func genClientFile(ops []opInfo) []byte {
 			retType = "*" + op.respType
 		}
 
-		fmt.Fprintf(&b, "func (c *Client) %s(%s) (%s, error) {\n",
-			methodName, strings.Join(sigParams, ", "), retType)
+		fmt.Fprintf(&b, "func %s %s(%s) (%s, error) {\n",
+			receiver, methodName, strings.Join(sigParams, ", "), retType)
 
 		// Body encoding.
 		if op.reqType != "" {
@@ -955,18 +1104,39 @@ func genClientFile(ops []opInfo) []byte {
 			fmt.Fprintf(&b, "\tvar out %s\n", op.respType)
 		}
 
-		// Return statement.
-		goPath := buildGoPath(op.path)
+		// Body args + return.
+		goPath := buildGoPath(op.path, pathSubs)
 		bodyArg := "nil"
 		if op.reqType != "" {
 			bodyArg = "body"
 		}
 		mc := httpMethodConst[op.httpMethod]
+		needsClientBackref := op.respType == "Leg" || op.respType == "Room"
 
-		if op.respSlice {
-			fmt.Fprintf(&b, "\treturn out, c.do(ctx, %s, %s, %s, &out)\n", mc, goPath, bodyArg)
+		if needsClientBackref {
+			// Two-line form so we can populate out.client / out[i].client between
+			// the HTTP call and the return.
+			fmt.Fprintf(&b, "\tif err := %s.do(ctx, %s, %s, %s, &out); err != nil {\n",
+				clientExpr, mc, goPath, bodyArg)
+			if op.respSlice {
+				b.WriteString("\t\treturn nil, err\n")
+			} else {
+				b.WriteString("\t\treturn nil, err\n")
+			}
+			b.WriteString("\t}\n")
+			if op.respSlice {
+				// Use the client value used for the call (clientExpr is "c", "l.client",
+				// or "r.client" — all valid expressions for a *Client).
+				fmt.Fprintf(&b, "\tfor i := range out {\n\t\tout[i].client = %s\n\t}\n", clientExpr)
+				b.WriteString("\treturn out, nil\n")
+			} else {
+				fmt.Fprintf(&b, "\tout.client = %s\n", clientExpr)
+				b.WriteString("\treturn &out, nil\n")
+			}
+		} else if op.respSlice {
+			fmt.Fprintf(&b, "\treturn out, %s.do(ctx, %s, %s, %s, &out)\n", clientExpr, mc, goPath, bodyArg)
 		} else {
-			fmt.Fprintf(&b, "\treturn &out, c.do(ctx, %s, %s, %s, &out)\n", mc, goPath, bodyArg)
+			fmt.Fprintf(&b, "\treturn &out, %s.do(ctx, %s, %s, %s, &out)\n", clientExpr, mc, goPath, bodyArg)
 		}
 
 		b.WriteString("}\n\n")

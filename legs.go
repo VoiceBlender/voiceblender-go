@@ -10,7 +10,13 @@ import (
 // ListLegs list all active legs
 func (c *Client) ListLegs(ctx context.Context) ([]Leg, error) {
 	var out []Leg
-	return out, c.do(ctx, http.MethodGet, "/legs", nil, &out)
+	if err := c.do(ctx, http.MethodGet, "/legs", nil, &out); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].client = c
+	}
+	return out, nil
 }
 
 // CreateLeg originate an outbound SIP call
@@ -20,235 +26,257 @@ func (c *Client) CreateLeg(ctx context.Context, req CreateLegRequest) (*Leg, err
 		return nil, err
 	}
 	var out Leg
-	return &out, c.do(ctx, http.MethodPost, "/legs", body, &out)
+	if err := c.do(ctx, http.MethodPost, "/legs", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = c
+	return &out, nil
 }
 
 // GetLeg get a single leg
 func (c *Client) GetLeg(ctx context.Context, id string) (*Leg, error) {
 	var out Leg
-	return &out, c.do(ctx, http.MethodGet, "/legs/"+id, nil, &out)
+	if err := c.do(ctx, http.MethodGet, "/legs/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	out.client = c
+	return &out, nil
 }
 
-// DeleteLeg hang up a leg
-func (c *Client) DeleteLeg(ctx context.Context, id string) (*StatusResponse, error) {
-	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id, nil, &out)
-}
-
-// AnswerLeg answer a ringing or early-media inbound SIP leg
-func (c *Client) AnswerLeg(ctx context.Context, id string, req AnswerLegRequest) (*StatusResponse, error) {
+// Hangup hang up a leg (asynchronous)
+func (l *Leg) Hangup(ctx context.Context, req DeleteLegRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/answer", body, &out)
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID, body, &out)
 }
 
-// EarlyMediaLeg enable early media on a ringing inbound SIP leg
-func (c *Client) EarlyMediaLeg(ctx context.Context, id string) (*StatusResponse, error) {
-	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/early-media", nil, &out)
-}
-
-// MuteLeg mute a leg
-func (c *Client) MuteLeg(ctx context.Context, id string) (*StatusResponse, error) {
-	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/mute", nil, &out)
-}
-
-// UnmuteLeg unmute a leg
-func (c *Client) UnmuteLeg(ctx context.Context, id string) (*StatusResponse, error) {
-	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/mute", nil, &out)
-}
-
-// HoldLeg put a SIP call on hold
-func (c *Client) HoldLeg(ctx context.Context, id string) (*StatusResponse, error) {
-	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/hold", nil, &out)
-}
-
-// UnholdLeg resume a held SIP call
-func (c *Client) UnholdLeg(ctx context.Context, id string) (*StatusResponse, error) {
-	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/hold", nil, &out)
-}
-
-// TransferLeg transfer a SIP leg via REFER (asynchronous)
-func (c *Client) TransferLeg(ctx context.Context, id string, req TransferRequest) (*StatusResponse, error) {
+// Answer answer a ringing or early-media inbound SIP leg (asynchronous)
+func (l *Leg) Answer(ctx context.Context, req AnswerLegRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/transfer", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/answer", body, &out)
+}
+
+// Ring send 180 Ringing on a ringing inbound SIP leg (asynchronous)
+func (l *Leg) Ring(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/ring", nil, &out)
+}
+
+// EarlyMedia enable early media on a ringing inbound SIP leg (asynchronous)
+func (l *Leg) EarlyMedia(ctx context.Context, req EarlyMediaLegRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/early-media", body, &out)
+}
+
+// Mute mute a leg
+func (l *Leg) Mute(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/mute", nil, &out)
+}
+
+// Unmute unmute a leg
+func (l *Leg) Unmute(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/mute", nil, &out)
+}
+
+// Hold put a SIP call on hold (asynchronous)
+func (l *Leg) Hold(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/hold", nil, &out)
+}
+
+// Unhold resume a held SIP call (asynchronous)
+func (l *Leg) Unhold(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/hold", nil, &out)
+}
+
+// Transfer transfer a SIP leg via REFER (asynchronous)
+func (l *Leg) Transfer(ctx context.Context, req TransferRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/transfer", body, &out)
 }
 
 // SendDTMF send DTMF digits on a leg
-func (c *Client) SendDTMF(ctx context.Context, id string, req DTMFRequest) (*StatusResponse, error) {
+func (l *Leg) SendDTMF(ctx context.Context, req DTMFRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/dtmf", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/dtmf", body, &out)
 }
 
-// AcceptDTMFLeg enable DTMF reception on a leg
-func (c *Client) AcceptDTMFLeg(ctx context.Context, id string) (*StatusResponse, error) {
+// EnableDTMF enable DTMF reception on a leg
+func (l *Leg) EnableDTMF(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/dtmf/accept", nil, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/dtmf/accept", nil, &out)
 }
 
-// RejectDTMFLeg disable DTMF reception on a leg
-func (c *Client) RejectDTMFLeg(ctx context.Context, id string) (*StatusResponse, error) {
+// DisableDTMF disable DTMF reception on a leg
+func (l *Leg) DisableDTMF(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/dtmf/reject", nil, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/dtmf/reject", nil, &out)
 }
 
-// PlayLeg start audio playback to a leg
-func (c *Client) PlayLeg(ctx context.Context, id string, req PlaybackRequest) (*PlaybackResponse, error) {
+// Play start audio playback to a leg
+func (l *Leg) Play(ctx context.Context, req PlaybackRequest) (*PlaybackResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out PlaybackResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/play", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/play", body, &out)
 }
 
-// VolumePlayLeg change the volume of an active leg playback
-func (c *Client) VolumePlayLeg(ctx context.Context, id string, playbackID string, req VolumeRequest) (*StatusResponse, error) {
+// VolumePlay change the volume of an active leg playback
+func (l *Leg) VolumePlay(ctx context.Context, playbackID string, req VolumeRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPatch, "/legs/"+id+"/play/"+playbackID, body, &out)
+	return &out, l.client.do(ctx, http.MethodPatch, "/legs/"+l.ID+"/play/"+playbackID, body, &out)
 }
 
-// StopPlayLeg stop audio playback on a leg
-func (c *Client) StopPlayLeg(ctx context.Context, id string, playbackID string) (*StatusResponse, error) {
+// StopPlay stop audio playback on a leg
+func (l *Leg) StopPlay(ctx context.Context, playbackID string) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/play/"+playbackID, nil, &out)
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/play/"+playbackID, nil, &out)
 }
 
-// TTSLeg synthesize speech and play it on a leg
-func (c *Client) TTSLeg(ctx context.Context, id string, req TTSRequest) (*TTSResponse, error) {
+// PlayTTS synthesize speech and play it on a leg
+func (l *Leg) PlayTTS(ctx context.Context, req TTSRequest) (*TTSResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out TTSResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/tts", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/tts", body, &out)
 }
 
-// RecordLeg start recording a leg to a WAV file
-func (c *Client) RecordLeg(ctx context.Context, id string, req RecordingRequest) (*RecordingResponse, error) {
+// Record start recording a leg to a WAV file
+func (l *Leg) Record(ctx context.Context, req RecordingRequest) (*RecordingResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out RecordingResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/record", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/record", body, &out)
 }
 
-// StopRecordLeg stop recording a leg
-func (c *Client) StopRecordLeg(ctx context.Context, id string) (*RecordingResponse, error) {
+// StopRecord stop recording a leg
+func (l *Leg) StopRecord(ctx context.Context) (*RecordingResponse, error) {
 	var out RecordingResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/record", nil, &out)
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/record", nil, &out)
 }
 
-// PauseRecordLeg pause a leg recording
-func (c *Client) PauseRecordLeg(ctx context.Context, id string) (*StatusResponse, error) {
+// PauseRecord pause a leg recording
+func (l *Leg) PauseRecord(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/record/pause", nil, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/record/pause", nil, &out)
 }
 
-// ResumeRecordLeg resume a paused leg recording
-func (c *Client) ResumeRecordLeg(ctx context.Context, id string) (*StatusResponse, error) {
+// ResumeRecord resume a paused leg recording
+func (l *Leg) ResumeRecord(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/record/resume", nil, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/record/resume", nil, &out)
 }
 
-// STTLeg start real-time speech-to-text on a leg
-func (c *Client) STTLeg(ctx context.Context, id string, req STTRequest) (*StatusResponse, error) {
+// STT start real-time speech-to-text on a leg
+func (l *Leg) STT(ctx context.Context, req STTRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/stt", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/stt", body, &out)
 }
 
-// StopSTTLeg stop speech-to-text on a leg
-func (c *Client) StopSTTLeg(ctx context.Context, id string) (*StatusResponse, error) {
+// StopSTT stop speech-to-text on a leg
+func (l *Leg) StopSTT(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/stt", nil, &out)
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/stt", nil, &out)
 }
 
-// ElevenLabsAgentLeg attach an ElevenLabs ConvAI agent to a leg
-func (c *Client) ElevenLabsAgentLeg(ctx context.Context, id string, req ElevenLabsAgentRequest) (*StatusResponse, error) {
+// ElevenLabsAgent attach an ElevenLabs ConvAI agent to a leg
+func (l *Leg) ElevenLabsAgent(ctx context.Context, req ElevenLabsAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/agent/elevenlabs", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/agent/elevenlabs", body, &out)
 }
 
-// VAPIAgentLeg attach a VAPI agent to a leg
-func (c *Client) VAPIAgentLeg(ctx context.Context, id string, req VAPIAgentRequest) (*StatusResponse, error) {
+// VAPIAgent attach a VAPI agent to a leg
+func (l *Leg) VAPIAgent(ctx context.Context, req VAPIAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/agent/vapi", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/agent/vapi", body, &out)
 }
 
-// PipecatAgentLeg attach a Pipecat bot to a leg
-func (c *Client) PipecatAgentLeg(ctx context.Context, id string, req PipecatAgentRequest) (*StatusResponse, error) {
+// PipecatAgent attach a Pipecat bot to a leg
+func (l *Leg) PipecatAgent(ctx context.Context, req PipecatAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/agent/pipecat", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/agent/pipecat", body, &out)
 }
 
-// DeepgramAgentLeg attach a Deepgram Voice Agent to a leg
-func (c *Client) DeepgramAgentLeg(ctx context.Context, id string, req DeepgramAgentRequest) (*StatusResponse, error) {
+// DeepgramAgent attach a Deepgram Voice Agent to a leg
+func (l *Leg) DeepgramAgent(ctx context.Context, req DeepgramAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/agent/deepgram", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/agent/deepgram", body, &out)
 }
 
-// AgentMessageLeg inject a message into a running agent session on a leg
-func (c *Client) AgentMessageLeg(ctx context.Context, id string, req AgentMessageRequest) (*StatusResponse, error) {
+// AgentMessage inject a message into a running agent session on a leg
+func (l *Leg) AgentMessage(ctx context.Context, req AgentMessageRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/agent/message", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/agent/message", body, &out)
 }
 
-// StopAgentLeg detach the agent from a leg
-func (c *Client) StopAgentLeg(ctx context.Context, id string) (*StatusResponse, error) {
+// StopAgent detach the agent from a leg
+func (l *Leg) StopAgent(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/legs/"+id+"/agent", nil, &out)
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/agent", nil, &out)
 }
 
-// StartAMDLeg start answering machine detection on a connected leg
-func (c *Client) StartAMDLeg(ctx context.Context, id string, req AMDParams) (*StatusResponse, error) {
+// StartAMD start answering machine detection on a connected leg
+func (l *Leg) StartAMD(ctx context.Context, req AMDParams) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/legs/"+id+"/amd", body, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/amd", body, &out)
 }

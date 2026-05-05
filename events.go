@@ -30,7 +30,8 @@ type LegRingingEvent struct {
 	// Callee URI (inbound only).
 	To string `json:"to,omitempty"`
 	// X-* custom SIP headers, if present.
-	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
+	SIPHeaders    map[string]string `json:"sip_headers,omitempty"`
+	OfferedCodecs []OfferedCodec    `json:"offered_codecs,omitempty"`
 }
 
 // LegEarlyMediaEvent is fired when: outbound leg received 183 Session Progress with SDP; media pipeline active

@@ -52,6 +52,20 @@ type CreateLegRequest struct {
 type AnswerLegRequest struct {
 	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
 	SpeechDetection *bool `json:"speech_detection,omitempty"`
+	// Explicit codec for the answer SDP. Must appear in the remote offer's offered_codecs list. Omit to use the server's default preference order.
+	Codec string `json:"codec,omitempty"`
+}
+
+// EarlyMediaLegRequest is a early media leg request.
+type EarlyMediaLegRequest struct {
+	// Explicit codec for the 183 Session Progress SDP. Must appear in the remote offer's offered_codecs list. Omit to use the server's default preference order.
+	Codec string `json:"codec,omitempty"`
+}
+
+// DeleteLegRequest is a delete leg request.
+type DeleteLegRequest struct {
+	// Disconnect reason. Only honored for unanswered SIP inbound legs (state `ringing` or `early_media`); on connected legs the body is ignored and the leg is hung up with the legacy `api_hangup` reason. The value flows through to `leg.disconnected`'s `cdr.reason` and selects the SIP final response: `busy`→486, `declined`/`rejected`→603, `unavailable`→480, `not_found`→404, `forbidden`→403, `server_error`→500.
+	Reason string `json:"reason,omitempty"`
 }
 
 // TransferRequest is a transfer request.

@@ -10,7 +10,13 @@ import (
 // ListRooms list all rooms with participants
 func (c *Client) ListRooms(ctx context.Context) ([]Room, error) {
 	var out []Room
-	return out, c.do(ctx, http.MethodGet, "/rooms", nil, &out)
+	if err := c.do(ctx, http.MethodGet, "/rooms", nil, &out); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].client = c
+	}
+	return out, nil
 }
 
 // CreateRoom create a room
@@ -20,169 +26,177 @@ func (c *Client) CreateRoom(ctx context.Context, req CreateRoomRequest) (*Room, 
 		return nil, err
 	}
 	var out Room
-	return &out, c.do(ctx, http.MethodPost, "/rooms", body, &out)
+	if err := c.do(ctx, http.MethodPost, "/rooms", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = c
+	return &out, nil
 }
 
 // GetRoom get a room with participants
 func (c *Client) GetRoom(ctx context.Context, id string) (*Room, error) {
 	var out Room
-	return &out, c.do(ctx, http.MethodGet, "/rooms/"+id, nil, &out)
+	if err := c.do(ctx, http.MethodGet, "/rooms/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	out.client = c
+	return &out, nil
 }
 
-// DeleteRoom delete a room
-func (c *Client) DeleteRoom(ctx context.Context, id string) (*StatusResponse, error) {
+// Delete delete a room
+func (r *Room) Delete(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id, nil, &out)
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID, nil, &out)
 }
 
-// AddLegToRoom add or move a leg to a room
-func (c *Client) AddLegToRoom(ctx context.Context, id string, req AddLegRequest) (*AddLegResponse, error) {
+// AddLeg add or move a leg to a room
+func (r *Room) AddLeg(ctx context.Context, req AddLegRequest) (*AddLegResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out AddLegResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/legs", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/legs", body, &out)
 }
 
-// RemoveLegFromRoom remove a leg from a room
-func (c *Client) RemoveLegFromRoom(ctx context.Context, id string, legID string) (*StatusResponse, error) {
+// RemoveLeg remove a leg from a room
+func (r *Room) RemoveLeg(ctx context.Context, legID string) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id+"/legs/"+legID, nil, &out)
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/legs/"+legID, nil, &out)
 }
 
-// PlayRoom play audio to a room
-func (c *Client) PlayRoom(ctx context.Context, id string, req PlaybackRequest) (*PlaybackResponse, error) {
+// Play play audio to a room
+func (r *Room) Play(ctx context.Context, req PlaybackRequest) (*PlaybackResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out PlaybackResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/play", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/play", body, &out)
 }
 
-// VolumePlayRoom change the volume of an active room playback
-func (c *Client) VolumePlayRoom(ctx context.Context, id string, playbackID string, req VolumeRequest) (*StatusResponse, error) {
+// VolumePlay change the volume of an active room playback
+func (r *Room) VolumePlay(ctx context.Context, playbackID string, req VolumeRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPatch, "/rooms/"+id+"/play/"+playbackID, body, &out)
+	return &out, r.client.do(ctx, http.MethodPatch, "/rooms/"+r.ID+"/play/"+playbackID, body, &out)
 }
 
-// StopPlayRoom stop room playback
-func (c *Client) StopPlayRoom(ctx context.Context, id string, playbackID string) (*StatusResponse, error) {
+// StopPlay stop room playback
+func (r *Room) StopPlay(ctx context.Context, playbackID string) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id+"/play/"+playbackID, nil, &out)
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/play/"+playbackID, nil, &out)
 }
 
-// TTSRoom synthesize speech and play it into a room
-func (c *Client) TTSRoom(ctx context.Context, id string, req TTSRequest) (*TTSResponse, error) {
+// PlayTTS synthesize speech and play it into a room
+func (r *Room) PlayTTS(ctx context.Context, req TTSRequest) (*TTSResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out TTSResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/tts", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/tts", body, &out)
 }
 
-// RecordRoom start recording the room mix to a WAV file
-func (c *Client) RecordRoom(ctx context.Context, id string, req RecordingRequest) (*RecordingResponse, error) {
+// Record start recording the room mix to a WAV file
+func (r *Room) Record(ctx context.Context, req RecordingRequest) (*RecordingResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out RecordingResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/record", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/record", body, &out)
 }
 
-// StopRecordRoom stop room recording
-func (c *Client) StopRecordRoom(ctx context.Context, id string) (*RecordingResponse, error) {
+// StopRecord stop room recording
+func (r *Room) StopRecord(ctx context.Context) (*RecordingResponse, error) {
 	var out RecordingResponse
-	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id+"/record", nil, &out)
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/record", nil, &out)
 }
 
-// PauseRecordRoom pause a room recording
-func (c *Client) PauseRecordRoom(ctx context.Context, id string) (*StatusResponse, error) {
+// PauseRecord pause a room recording
+func (r *Room) PauseRecord(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/record/pause", nil, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/record/pause", nil, &out)
 }
 
-// ResumeRecordRoom resume a paused room recording
-func (c *Client) ResumeRecordRoom(ctx context.Context, id string) (*StatusResponse, error) {
+// ResumeRecord resume a paused room recording
+func (r *Room) ResumeRecord(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/record/resume", nil, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/record/resume", nil, &out)
 }
 
-// STTRoom start speech-to-text on all room participants
-func (c *Client) STTRoom(ctx context.Context, id string, req STTRequest) (*StatusResponse, error) {
+// STT start speech-to-text on all room participants
+func (r *Room) STT(ctx context.Context, req STTRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/stt", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/stt", body, &out)
 }
 
-// StopSTTRoom stop speech-to-text on a room
-func (c *Client) StopSTTRoom(ctx context.Context, id string) (*StatusResponse, error) {
+// StopSTT stop speech-to-text on a room
+func (r *Room) StopSTT(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id+"/stt", nil, &out)
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/stt", nil, &out)
 }
 
-// ElevenLabsAgentRoom attach an ElevenLabs ConvAI agent to a room
-func (c *Client) ElevenLabsAgentRoom(ctx context.Context, id string, req ElevenLabsAgentRequest) (*StatusResponse, error) {
+// ElevenLabsAgent attach an ElevenLabs ConvAI agent to a room
+func (r *Room) ElevenLabsAgent(ctx context.Context, req ElevenLabsAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/agent/elevenlabs", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/agent/elevenlabs", body, &out)
 }
 
-// VAPIAgentRoom attach a VAPI agent to a room
-func (c *Client) VAPIAgentRoom(ctx context.Context, id string, req VAPIAgentRequest) (*StatusResponse, error) {
+// VAPIAgent attach a VAPI agent to a room
+func (r *Room) VAPIAgent(ctx context.Context, req VAPIAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/agent/vapi", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/agent/vapi", body, &out)
 }
 
-// PipecatAgentRoom attach a Pipecat bot to a room
-func (c *Client) PipecatAgentRoom(ctx context.Context, id string, req PipecatAgentRequest) (*StatusResponse, error) {
+// PipecatAgent attach a Pipecat bot to a room
+func (r *Room) PipecatAgent(ctx context.Context, req PipecatAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/agent/pipecat", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/agent/pipecat", body, &out)
 }
 
-// DeepgramAgentRoom attach a Deepgram Voice Agent to a room
-func (c *Client) DeepgramAgentRoom(ctx context.Context, id string, req DeepgramAgentRequest) (*StatusResponse, error) {
+// DeepgramAgent attach a Deepgram Voice Agent to a room
+func (r *Room) DeepgramAgent(ctx context.Context, req DeepgramAgentRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/agent/deepgram", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/agent/deepgram", body, &out)
 }
 
-// AgentMessageRoom inject a message into a running agent session on a room
-func (c *Client) AgentMessageRoom(ctx context.Context, id string, req AgentMessageRequest) (*StatusResponse, error) {
+// AgentMessage inject a message into a running agent session on a room
+func (r *Room) AgentMessage(ctx context.Context, req AgentMessageRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
 		return nil, err
 	}
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodPost, "/rooms/"+id+"/agent/message", body, &out)
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/agent/message", body, &out)
 }
 
-// StopAgentRoom detach the agent from a room
-func (c *Client) StopAgentRoom(ctx context.Context, id string) (*StatusResponse, error) {
+// StopAgent detach the agent from a room
+func (r *Room) StopAgent(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
-	return &out, c.do(ctx, http.MethodDelete, "/rooms/"+id+"/agent", nil, &out)
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/agent", nil, &out)
 }
