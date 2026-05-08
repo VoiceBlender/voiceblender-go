@@ -63,6 +63,7 @@ type clientMsg struct {
 // app holds the single active session and the set of WebSocket subscribers.
 type app struct {
 	client *voiceblender.Client
+	stream *voiceblender.EventStream
 	log    *slog.Logger
 
 	mu      sync.Mutex
@@ -86,10 +87,19 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// One websocket pumps every event into the client's hub. Subscribe API
-	// on Client / *Leg reads from the hub.
+	// One websocket pumps every event into the client's hub (Subscribe API
+	// reads from there) AND carries our outgoing VSI commands — including
+	// send_leg_rtt for outbound text. Holding the *EventStream lets us call
+	// typed VSI methods directly instead of going via HTTP.
+	stream, err := a.client.Events(ctx)
+	if err != nil {
+		log.Error("event stream open", "error", err)
+		return
+	}
+	defer stream.Close()
+	a.stream = stream
 	go func() {
-		if err := a.client.RunEventStream(ctx); err != nil && ctx.Err() == nil {
+		if err := stream.PipeTo(ctx, a.client); err != nil && ctx.Err() == nil {
 			log.Error("event stream", "error", err)
 			cancel()
 		}
@@ -296,9 +306,10 @@ func (a *app) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sendRTT pushes outgoing text on the active leg and echoes it to all UI
-// clients so the local sender sees their own messages. Uses a fresh context
-// so a flaky/closing browser WS doesn't tear down the API call mid-flight.
+// sendRTT pushes outgoing text on the active leg via the VSI WebSocket
+// (send_leg_rtt) and echoes it to all UI clients so the local sender sees
+// their own messages. Uses a fresh context so a flaky/closing browser WS
+// doesn't tear down the VSI call mid-flight.
 func (a *app) sendRTT(text string) {
 	a.mu.Lock()
 	legID := a.curLeg
@@ -309,7 +320,7 @@ func (a *app) sendRTT(text string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := a.client.Leg(legID).SendRTT(ctx, voiceblender.RTTRequest{Text: text}); err != nil {
+	if _, err := a.stream.SendLegRTT(ctx, voiceblender.RTTPayload{ID: legID, Text: text}); err != nil {
 		a.log.Error("send rtt", "leg_id", legID, "error", err)
 		a.broadcast(uiEvent{Kind: "error", Text: "send failed: " + err.Error(), Time: nowMs()})
 		return
