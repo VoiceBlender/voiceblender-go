@@ -15,17 +15,27 @@
   header {
     padding: 12px 18px; border-bottom: 1px solid #20242c;
     display: flex; justify-content: space-between; align-items: center;
+    gap: 10px;
     flex-shrink: 0;
   }
   header h1 {
     margin: 0; font-size: 12px; font-weight: 600;
     letter-spacing: .08em; text-transform: uppercase; color: #9ba2b3;
   }
-  #status {
+  header .right { display: flex; gap: 10px; align-items: center; }
+  #status, #webrtcStatus {
     font-size: 12px; padding: 4px 10px; border-radius: 999px;
     background: #2a2f3a; color: #8e95a5;
   }
   #status.live { background: #163b25; color: #6dd58e; }
+  #webrtcStatus.live { background: #163b25; color: #6dd58e; }
+  #webrtcStatus.dial { background: #2c2410; color: #f0c14b; }
+  #call {
+    background: #2a5cdc; color: #fff; border: 0; border-radius: 999px;
+    padding: 4px 14px; font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  #call.hangup { background: #c1432a; }
+  #call:disabled { opacity: .5; cursor: not-allowed; }
   #log {
     flex: 1; overflow-y: auto; padding: 18px;
     display: flex; flex-direction: column; gap: 6px;
@@ -72,9 +82,14 @@
 <body>
   <header>
     <h1>VoiceBlender RTT</h1>
-    <span id="status">offline</span>
+    <div class="right">
+      <span id="webrtcStatus">webrtc off</span>
+      <span id="status">offline</span>
+      <button id="call">Call</button>
+    </div>
   </header>
 
+  <audio id="remoteAudio" autoplay playsinline></audio>
   <div id="log"></div>
 
   <form id="form">
@@ -88,8 +103,34 @@
   const form = document.getElementById('form');
   const text = document.getElementById('text');
   const send = document.getElementById('send');
+  const callBtn = document.getElementById('call');
+  const webrtcStatus = document.getElementById('webrtcStatus');
+  const remoteAudio = document.getElementById('remoteAudio');
 
   let active = false;
+  let pc = null;            // RTCPeerConnection
+  let webrtcLegID = null;   // server-allocated WebRTC leg ID
+  let pollAbort = null;     // AbortController for the ICE-candidate poll loop
+
+  function setWebRTCStatus(state) {
+    // state: 'off' | 'dialing' | 'live'
+    webrtcStatus.classList.remove('live', 'dial');
+    if (state === 'live') {
+      webrtcStatus.textContent = 'webrtc live';
+      webrtcStatus.classList.add('live');
+      callBtn.textContent = 'Hang up';
+      callBtn.classList.add('hangup');
+    } else if (state === 'dialing') {
+      webrtcStatus.textContent = 'connecting…';
+      webrtcStatus.classList.add('dial');
+      callBtn.textContent = 'Cancel';
+      callBtn.classList.add('hangup');
+    } else {
+      webrtcStatus.textContent = 'webrtc off';
+      callBtn.textContent = 'Call';
+      callBtn.classList.remove('hangup');
+    }
+  }
 
   function setActive(on, from) {
     active = on;
@@ -192,6 +233,16 @@
         case 'rtt':
           appendRTT(ev.dir, ev.text || '', ev.loss);
           break;
+        case 'webrtc_connected':
+          setWebRTCStatus('live');
+          appendSystem('— webrtc connected —');
+          break;
+        case 'webrtc_disconnected':
+          // Server-side notice that the WebRTC leg is gone. Tear down the
+          // browser peer connection if it's still live.
+          stopWebRTC(false);
+          appendSystem('— webrtc disconnected —');
+          break;
         case 'error':
           appendSystem('error: ' + (ev.text || 'unknown'));
           break;
@@ -224,6 +275,122 @@
     // Remove this if you want to stream raw keystrokes character-by-character.
     sendText(t + '\r\n');
   });
+
+  // ── WebRTC ────────────────────────────────────────────────────────────────
+  //
+  // Click "Call" → grab the mic, build an SDP offer with all local ICE
+  // candidates gathered, POST it to the demo server (which forwards to
+  // VoiceBlender over the VSI WebSocket via webrtc_offer), apply the SDP
+  // answer, then poll the server for trickled remote ICE candidates.
+  // Hangup tears the peer connection down and tells the server to delete
+  // the leg (delete_leg over VSI).
+
+  callBtn.addEventListener('click', () => {
+    if (pc) {
+      stopWebRTC(true);
+    } else {
+      startWebRTC().catch((err) => {
+        console.error('webrtc start', err);
+        appendSystem('webrtc error: ' + (err.message || err));
+        stopWebRTC(false);
+      });
+    }
+  });
+
+  async function startWebRTC() {
+    setWebRTCStatus('dialing');
+    callBtn.disabled = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+      pc.ontrack = (ev) => { remoteAudio.srcObject = ev.streams[0]; };
+      pc.onconnectionstatechange = () => {
+        if (!pc) return;
+        const s = pc.connectionState;
+        if (s === 'failed' || s === 'closed') {
+          stopWebRTC(false);
+        }
+      };
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate && webrtcLegID) {
+          fetch('/api/webrtc/' + encodeURIComponent(webrtcLegID) + '/candidates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ev.candidate.toJSON()),
+          }).catch((err) => console.warn('post candidate', err));
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const resp = await fetch('/api/webrtc/offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sdp: pc.localDescription.sdp }),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error('offer ' + resp.status + ': ' + txt);
+      }
+      const data = await resp.json();
+      webrtcLegID = data.leg_id;
+      await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+
+      pollAbort = new AbortController();
+      pollRemoteCandidates(webrtcLegID, pollAbort.signal);
+    } finally {
+      callBtn.disabled = false;
+    }
+  }
+
+  // Server's gathered candidates may trickle in after the SDP answer was
+  // returned. Drain webrtc_get_candidates (proxied via /api/webrtc/{leg}/
+  // candidates) until the response says done:true.
+  async function pollRemoteCandidates(legID, signal) {
+    while (!signal.aborted && pc && webrtcLegID === legID) {
+      let data;
+      try {
+        const resp = await fetch('/api/webrtc/' + encodeURIComponent(legID) + '/candidates', { signal });
+        if (!resp.ok) break;
+        data = await resp.json();
+      } catch (err) {
+        if (signal.aborted) return;
+        console.warn('poll candidates', err);
+        break;
+      }
+      for (const c of (data.candidates || [])) {
+        try { await pc.addIceCandidate(c); } catch (err) { console.warn('addIceCandidate', err); }
+      }
+      if (data.done) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  function stopWebRTC(notifyServer) {
+    if (pollAbort) {
+      pollAbort.abort();
+      pollAbort = null;
+    }
+    if (notifyServer && webrtcLegID) {
+      fetch('/api/webrtc/' + encodeURIComponent(webrtcLegID) + '/hangup', { method: 'POST' })
+        .catch((err) => console.warn('hangup', err));
+    }
+    if (pc) {
+      try { pc.close(); } catch (_) {}
+      pc = null;
+    }
+    if (remoteAudio.srcObject) {
+      remoteAudio.srcObject.getTracks().forEach((t) => t.stop());
+      remoteAudio.srcObject = null;
+    }
+    webrtcLegID = null;
+    setWebRTCStatus('off');
+  }
 </script>
 </body>
 </html>

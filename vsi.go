@@ -66,6 +66,24 @@ type VSIStatusResponse struct {
 	Status string `json:"status"`
 }
 
+// VSIWebRTCAddCandidatePayload is a v s i web r t c add candidate payload.
+type VSIWebRTCAddCandidatePayload struct {
+	ID        string           `json:"id"`
+	Candidate ICECandidateInit `json:"candidate"`
+}
+
+// WebRTCCandidatesResult is a web r t c candidates result.
+type WebRTCCandidatesResult struct {
+	Candidates []ICECandidateInit `json:"candidates"`
+	Done       bool               `json:"done"`
+}
+
+// WebRTCOfferResult is a web r t c offer result.
+type WebRTCOfferResult struct {
+	LegID string `json:"leg_id"`
+	SDP   string `json:"sdp"`
+}
+
 // ── VSI command methods on *EventStream ───────────────────────────────────
 
 // ListLegs list all active legs
@@ -168,6 +186,24 @@ func (s *EventStream) AcceptLegRTT(ctx context.Context, payload IDPayload) (VSIS
 func (s *EventStream) RejectLegRTT(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "reject_leg_rtt", payload, &out)
+}
+
+// WebRTCOffer establish a WebRTC leg via SDP offer/answer
+func (s *EventStream) WebRTCOffer(ctx context.Context, payload WebRTCOfferRequest) (WebRTCOfferResult, error) {
+	var out WebRTCOfferResult
+	return out, s.call(ctx, "webrtc_offer", payload, &out)
+}
+
+// WebRTCAddCandidate add a remote ICE candidate to a WebRTC leg
+func (s *EventStream) WebRTCAddCandidate(ctx context.Context, payload VSIWebRTCAddCandidatePayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "webrtc_add_candidate", payload, &out)
+}
+
+// WebRTCGetCandidates drain server-gathered ICE candidates for a WebRTC leg
+func (s *EventStream) WebRTCGetCandidates(ctx context.Context, payload IDPayload) (WebRTCCandidatesResult, error) {
+	var out WebRTCCandidatesResult
+	return out, s.call(ctx, "webrtc_get_candidates", payload, &out)
 }
 
 // ListRooms list all rooms

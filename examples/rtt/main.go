@@ -1,30 +1,38 @@
-// Command rtt is a Real-Time Text (T.140 / RFC 4103) demo for VoiceBlender.
+// Command rtt is a Real-Time Text (T.140 / RFC 4103) demo for VoiceBlender,
+// extended with a WebRTC audio bridge so a browser can join the same room as
+// the inbound SIP caller.
 //
 // Behaviour:
 //   - Connects to VoiceBlender via the VSI WebSocket — no webhook config needed.
+//   - Hosts a tiny web UI at LISTEN_ADDR. The page can:
+//   - "Call" — establishes a WebRTC audio leg via /webrtc/offer and joins
+//     the shared room.
+//   - Show RTT chunks from the SIP peer letter-by-letter.
+//   - Send outgoing RTT, which is delivered to the SIP leg via
+//     send_leg_rtt over the VSI socket.
 //   - Answers any inbound SIP call. RTT is negotiated automatically when the
 //     remote offer includes an m=text section (the VoiceBlender server must
-//     run with RTT_ENABLED=true).
-//   - Hosts a tiny web UI at LISTEN_ADDR. Browser ↔ server runs over a
-//     WebSocket so the letter-by-letter rtt.received chunks update the
-//     incoming text view live as the remote types. Outgoing messages travel
-//     on the same socket and are pushed to the leg via SendRTT.
-//   - Single-call demo: while a call is active any other inbound call is
-//     rejected with "busy". Reload picks up an in-progress session.
+//     run with RTT_ENABLED=true). The answered SIP leg joins the same shared
+//     room as the WebRTC leg, so audio mixes both ways.
+//   - Single-call demo: while a SIP call is active any other inbound call is
+//     rejected with "busy"; while a WebRTC call is active a second /webrtc
+//     attempt is rejected with 409. Reload picks up an in-progress session.
 //
 // Run:
 //
 //	go run ./examples/rtt
 //
-// Then place an RTT-capable SIP call to the VoiceBlender server and open
-// http://localhost:8090 in a browser.
+// Then open http://localhost:8090 in a browser, click "Call" to join via
+// WebRTC, and place an RTT-capable SIP call to the VoiceBlender server.
 //
 // Environment:
 //
 //	VOICEBLENDER_URL  default http://localhost:8080/v1
 //	LISTEN_ADDR       default :8090
 //	TLS_CERT_FILE     PEM certificate path; if set together with
-//	                  TLS_KEY_FILE the UI is served over HTTPS/WSS
+//	                  TLS_KEY_FILE the UI is served over HTTPS/WSS.
+//	                  Required by browsers for getUserMedia + WebRTC except
+//	                  on localhost.
 //	TLS_KEY_FILE      PEM private key path; pairs with TLS_CERT_FILE
 package main
 
@@ -37,6 +45,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,9 +56,11 @@ import (
 //go:embed index.html
 var assets embed.FS
 
+const sharedRoomID = "rtt-room"
+
 // uiEvent is what the server pushes to the browser over the WebSocket.
 type uiEvent struct {
-	Kind string `json:"kind"`           // "call_started", "call_ended", "rtt", "error"
+	Kind string `json:"kind"`           // "call_started", "call_ended", "rtt", "webrtc_*", "error"
 	From string `json:"from,omitempty"` // caller URI on call_started
 	Dir  string `json:"dir,omitempty"`  // "in" or "out" for kind=="rtt"
 	Text string `json:"text,omitempty"` // also error message for kind=="error"
@@ -57,22 +68,24 @@ type uiEvent struct {
 	Time int64  `json:"time"`           // unix ms
 }
 
-// clientMsg is what the browser sends to the server over the WebSocket.
+// clientMsg is what the browser sends to the server over the UI WebSocket.
 type clientMsg struct {
 	Type string `json:"type"` // "send"
 	Text string `json:"text,omitempty"`
 }
 
-// app holds the single active session and the set of WebSocket subscribers.
+// app holds the single active session state and the set of UI subscribers.
 type app struct {
 	client *voiceblender.Client
 	stream *voiceblender.EventStream
 	log    *slog.Logger
 
-	mu      sync.Mutex
-	curLeg  string
-	curFrom string
-	clients map[chan uiEvent]struct{}
+	mu        sync.Mutex
+	room      *voiceblender.Room
+	sipLeg    string
+	sipFrom   string
+	webrtcLeg string
+	clients   map[chan uiEvent]struct{}
 }
 
 func main() {
@@ -115,11 +128,30 @@ func main() {
 		}
 	}()
 
+	// Pre-create the shared room. Both the WebRTC leg and the SIP leg join
+	// this room when their respective leg.connected fires.
+	room, err := a.client.CreateRoom(ctx, voiceblender.CreateRoomRequest{ID: sharedRoomID})
+	if err != nil && !voiceblender.IsConflict(err) {
+		log.Error("create shared room", "error", err)
+		return
+	}
+	if room == nil {
+		room = a.client.Room(sharedRoomID)
+	}
+	a.room = room
+	defer func() {
+		if _, err := room.Delete(context.Background()); err != nil {
+			a.log.Warn("delete shared room", "error", err)
+		}
+	}()
+
 	go a.handleRingings(ctx)
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 	mux.HandleFunc("/ws", a.wsHandler)
+	mux.HandleFunc("/api/webrtc/offer", a.handleWebRTCOffer)
+	mux.HandleFunc("/api/webrtc/", a.handleWebRTCLeg)
 
 	srv := &http.Server{Addr: listenAddr, Handler: mux}
 	log.Info("rtt demo ready", "base_url", baseURL, "listen", listenAddr, "tls", tlsEnabled)
@@ -158,10 +190,10 @@ func (a *app) handleRingings(ctx context.Context) {
 		}
 
 		a.mu.Lock()
-		busy := a.curLeg != ""
+		busy := a.sipLeg != ""
 		if !busy {
-			a.curLeg = ring.LegID
-			a.curFrom = ring.From
+			a.sipLeg = ring.LegID
+			a.sipFrom = ring.From
 		}
 		a.mu.Unlock()
 
@@ -172,35 +204,21 @@ func (a *app) handleRingings(ctx context.Context) {
 		}
 
 		a.log.Info("inbound", "leg_id", ring.LegID, "from", ring.From)
-		go a.runCall(ctx, ring)
+		go a.runSIPCall(ctx, ring)
 	}
 }
 
-// runCall answers the leg, places it in a per-call mixer room, and fans
-// rtt.received events out to web clients. The leg is added to a room on
+// runSIPCall answers the leg, places it in the shared mixer room, and fans
+// rtt.received events out to web clients. The leg is added to the room on
 // leg.connected because RTT egress flows via the mixer — receive arrives
-// direct from the SIP peer, but transmit needs the leg in a room.
+// direct from the SIP peer, but transmit needs the leg in a room. Audio
+// mixes with the WebRTC participant (if any) in the same shared room.
 //
 // RTT negotiation itself is SDP-driven: if the remote offer included m=text
 // and the server has RTT_ENABLED, the answer generated by Answer() will
 // include it too.
-func (a *app) runCall(ctx context.Context, ring *voiceblender.LegRingingEvent) {
+func (a *app) runSIPCall(ctx context.Context, ring *voiceblender.LegRingingEvent) {
 	leg := a.client.Leg(ring.LegID)
-
-	// Per-call room. Using the leg ID guarantees uniqueness.
-	roomID := "rtt-" + ring.LegID
-	room, err := a.client.CreateRoom(ctx, voiceblender.CreateRoomRequest{ID: roomID})
-	if err != nil {
-		a.log.Error("create room", "room_id", roomID, "error", err)
-		_, _ = leg.Hangup(ctx, voiceblender.DeleteLegRequest{Reason: "server_error"})
-		a.endCall(ring.LegID)
-		return
-	}
-	defer func() {
-		if _, err := room.Delete(context.Background()); err != nil {
-			a.log.Warn("delete room", "room_id", roomID, "error", err)
-		}
-	}()
 
 	// Subscribe before answering so we don't miss early events.
 	sub := leg.Subscribe(
@@ -212,13 +230,13 @@ func (a *app) runCall(ctx context.Context, ring *voiceblender.LegRingingEvent) {
 
 	if _, err := leg.Answer(ctx, voiceblender.AnswerLegRequest{}); err != nil {
 		a.log.Error("answer", "leg_id", ring.LegID, "error", err)
-		a.endCall(ring.LegID)
+		a.endSIPCall(ring.LegID)
 		return
 	}
 
 	defer func() {
 		a.broadcast(uiEvent{Kind: "call_ended", Time: nowMs()})
-		a.endCall(ring.LegID)
+		a.endSIPCall(ring.LegID)
 	}()
 
 	for {
@@ -228,27 +246,171 @@ func (a *app) runCall(ctx context.Context, ring *voiceblender.LegRingingEvent) {
 		}
 		switch e := ev.(type) {
 		case *voiceblender.LegConnectedEvent:
-			a.log.Info("leg connected", "leg_id", e.LegID)
-			if _, err := room.AddLeg(ctx, voiceblender.AddLegRequest{LegID: ring.LegID}); err != nil {
-				a.log.Error("add leg to room", "leg_id", ring.LegID, "room_id", roomID, "error", err)
+			a.log.Info("sip leg connected", "leg_id", e.LegID)
+			if _, err := a.room.AddLeg(ctx, voiceblender.AddLegRequest{LegID: ring.LegID}); err != nil {
+				a.log.Error("add sip leg to room", "leg_id", ring.LegID, "room_id", sharedRoomID, "error", err)
 			}
 			a.broadcast(uiEvent{Kind: "call_started", From: ring.From, Time: nowMs()})
 		case *voiceblender.RTTReceivedEvent:
 			a.log.Info("rtt in", "leg_id", e.LegID, "seq", e.Seq, "loss", e.LossMarker, "text", e.Text)
 			a.broadcast(uiEvent{Kind: "rtt", Dir: "in", Text: e.Text, Loss: e.LossMarker, Time: nowMs()})
 		case *voiceblender.LegDisconnectedEvent:
-			a.log.Info("leg disconnected", "leg_id", e.LegID)
+			a.log.Info("sip leg disconnected", "leg_id", e.LegID)
 			return
 		}
 	}
 }
 
-func (a *app) endCall(legID string) {
+func (a *app) endSIPCall(legID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.curLeg == legID {
-		a.curLeg = ""
-		a.curFrom = ""
+	if a.sipLeg == legID {
+		a.sipLeg = ""
+		a.sipFrom = ""
+	}
+}
+
+// handleWebRTCOffer accepts an SDP offer from the browser and forwards it to
+// VoiceBlender via the VSI WebSocket (webrtc_offer command). Returns the SDP
+// answer + leg ID. The new WebRTC leg is then watched in a goroutine — on
+// leg.connected it joins the shared room.
+func (a *app) handleWebRTCOffer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req voiceblender.WebRTCOfferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.SDP == "" {
+		http.Error(w, "missing sdp", http.StatusBadRequest)
+		return
+	}
+
+	a.mu.Lock()
+	if a.webrtcLeg != "" {
+		a.mu.Unlock()
+		http.Error(w, "webrtc leg already active", http.StatusConflict)
+		return
+	}
+	a.mu.Unlock()
+
+	resp, err := a.stream.WebRTCOffer(r.Context(), req)
+	if err != nil {
+		a.log.Error("webrtc offer (vsi)", "error", err)
+		http.Error(w, "webrtc offer failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	a.mu.Lock()
+	a.webrtcLeg = resp.LegID
+	a.mu.Unlock()
+
+	a.log.Info("webrtc leg created", "leg_id", resp.LegID)
+	go a.runWebRTCLeg(context.Background(), resp.LegID)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleWebRTCLeg dispatches /api/webrtc/{legID}/{action} requests. All
+// VoiceBlender-side calls go over the VSI WebSocket:
+//   - GET  /api/webrtc/{legID}/candidates  → webrtc_get_candidates
+//   - POST /api/webrtc/{legID}/candidates  → webrtc_add_candidate
+//   - POST /api/webrtc/{legID}/hangup      → delete_leg
+func (a *app) handleWebRTCLeg(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/webrtc/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) < 2 || parts[0] == "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	legID, action := parts[0], parts[1]
+
+	switch action {
+	case "candidates":
+		switch r.Method {
+		case http.MethodGet:
+			cands, err := a.stream.WebRTCGetCandidates(r.Context(), voiceblender.IDPayload{ID: legID})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(cands)
+		case http.MethodPost:
+			var c voiceblender.ICECandidateInit
+			if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+				http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if _, err := a.stream.WebRTCAddCandidate(r.Context(), voiceblender.VSIWebRTCAddCandidatePayload{
+				ID:        legID,
+				Candidate: c,
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	case "hangup":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if _, err := a.stream.DeleteLeg(r.Context(), voiceblender.VSIDeleteLegPayload{ID: legID}); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "not found: "+action, http.StatusNotFound)
+	}
+}
+
+// runWebRTCLeg watches the WebRTC leg's connect/disconnect events and joins
+// the shared room on connect. Uses its own context so it survives request
+// cancellation; tied to the SIGINT context via the goroutine started in main.
+func (a *app) runWebRTCLeg(ctx context.Context, legID string) {
+	leg := a.client.Leg(legID)
+	sub := leg.Subscribe(
+		voiceblender.EventLegConnected,
+		voiceblender.EventLegDisconnected,
+	)
+	defer sub.Close()
+	defer a.endWebRTCLeg(legID)
+	defer a.broadcast(uiEvent{Kind: "webrtc_disconnected", Time: nowMs()})
+
+	for {
+		ev, err := sub.Next(ctx)
+		if err != nil {
+			return
+		}
+		switch e := ev.(type) {
+		case *voiceblender.LegConnectedEvent:
+			a.log.Info("webrtc leg connected", "leg_id", e.LegID)
+			addCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if _, err := a.room.AddLeg(addCtx, voiceblender.AddLegRequest{LegID: legID}); err != nil {
+				a.log.Error("add webrtc leg to room", "leg_id", legID, "room_id", sharedRoomID, "error", err)
+			}
+			cancel()
+			a.broadcast(uiEvent{Kind: "webrtc_connected", Time: nowMs()})
+		case *voiceblender.LegDisconnectedEvent:
+			a.log.Info("webrtc leg disconnected", "leg_id", e.LegID)
+			return
+		}
+	}
+}
+
+func (a *app) endWebRTCLeg(legID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.webrtcLeg == legID {
+		a.webrtcLeg = ""
 	}
 }
 
@@ -271,8 +433,9 @@ func (a *app) wsHandler(w http.ResponseWriter, r *http.Request) {
 	ch := make(chan uiEvent, 64)
 	a.mu.Lock()
 	a.clients[ch] = struct{}{}
-	curLeg := a.curLeg
-	curFrom := a.curFrom
+	curSIP := a.sipLeg
+	curFrom := a.sipFrom
+	curWebRTC := a.webrtcLeg
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
@@ -280,9 +443,12 @@ func (a *app) wsHandler(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 	}()
 
-	// Re-emit call_started so a page reload during an active call resumes
-	// in the right state. Past RTT chunks are not replayed.
-	if curLeg != "" {
+	// Re-emit current state so a page reload during an active session
+	// resumes in the right state. Past RTT chunks are not replayed.
+	if curWebRTC != "" {
+		_ = writeJSON(ctx, conn, uiEvent{Kind: "webrtc_connected", Time: nowMs()})
+	}
+	if curSIP != "" {
 		_ = writeJSON(ctx, conn, uiEvent{Kind: "call_started", From: curFrom, Time: nowMs()})
 	}
 
@@ -322,16 +488,16 @@ func (a *app) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sendRTT pushes outgoing text on the active leg via the VSI WebSocket
+// sendRTT pushes outgoing text on the active SIP leg via the VSI WebSocket
 // (send_leg_rtt) and echoes it to all UI clients so the local sender sees
 // their own messages. Uses a fresh context so a flaky/closing browser WS
 // doesn't tear down the VSI call mid-flight.
 func (a *app) sendRTT(text string) {
 	a.mu.Lock()
-	legID := a.curLeg
+	legID := a.sipLeg
 	a.mu.Unlock()
 	if legID == "" {
-		a.broadcast(uiEvent{Kind: "error", Text: "no active call", Time: nowMs()})
+		a.broadcast(uiEvent{Kind: "error", Text: "no active sip call", Time: nowMs()})
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -375,3 +541,4 @@ func envOr(key, def string) string {
 	}
 	return def
 }
+

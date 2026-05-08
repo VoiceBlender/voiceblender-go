@@ -1398,6 +1398,17 @@ func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema) []byte {
 
 	asyncSchemas := spec.Components.Schemas
 
+	// Schemas declared in both asyncapi and openapi: emitted once in
+	// requests.go (or hardcoded there for ICECandidateInit) and skipped here
+	// so vsi.go references the existing type instead of redeclaring it.
+	// WebRTCOfferResult / WebRTCCandidatesResult are async-only as far as Go
+	// emission goes — the openapi spec mentions them but no Go file emits
+	// them from there, so they must still be emitted in vsi.go.
+	vsiSkipSchemas := map[string]bool{
+		"ICECandidateInit":   true,
+		"WebRTCOfferRequest": true,
+	}
+
 	// 1. Emit Go structs for every payload / result schema in deterministic
 	//    order. Sort by Go type name for stable output.
 	type namedSchema struct {
@@ -1413,6 +1424,9 @@ func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema) []byte {
 	})
 	b.WriteString("// ── VSI payload / result schemas ──────────────────────────────────────────\n\n")
 	for _, ns := range namedSchemas {
+		if vsiSkipSchemas[ns.raw] {
+			continue
+		}
 		genStruct(&b, ns.raw, ns.s)
 	}
 
