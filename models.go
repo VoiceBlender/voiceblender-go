@@ -68,6 +68,8 @@ const (
 	EventLegUnhold WebhookEventType = "leg.unhold"
 	// EventDTMFReceived is the "dtmf.received" WebhookEventType value.
 	EventDTMFReceived WebhookEventType = "dtmf.received"
+	// EventRttReceived is the "rtt.received" WebhookEventType value.
+	EventRttReceived WebhookEventType = "rtt.received"
 	// EventSpeakingStarted is the "speaking.started" WebhookEventType value.
 	EventSpeakingStarted WebhookEventType = "speaking.started"
 	// EventSpeakingStopped is the "speaking.stopped" WebhookEventType value.

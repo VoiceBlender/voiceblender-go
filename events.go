@@ -162,6 +162,20 @@ type DTMFReceivedEvent struct {
 	Seq   int    `json:"seq,omitempty"`
 }
 
+// RttReceivedEvent is fired when: real-Time Text (T.140 / RFC 4103) chunk received from the remote
+type RttReceivedEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+	// UTF-8 text chunk received from the remote.
+	Text string `json:"text,omitempty"`
+	// Per-leg monotonic sequence (independent of RTP sequence numbers).
+	Seq int `json:"seq,omitempty"`
+	// True when a U+FFFD has been prepended to indicate text was lost beyond what RFC 2198 redundancy could recover.
+	LossMarker bool `json:"loss_marker,omitempty"`
+}
+
 // SpeakingStartedEvent is fired when: participant started speaking
 type SpeakingStartedEvent struct {
 	Event
@@ -557,6 +571,12 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventDTMFReceived:
 		var e DTMFReceivedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventRttReceived:
+		var e RttReceivedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

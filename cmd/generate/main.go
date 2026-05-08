@@ -477,6 +477,7 @@ func genRequests(schemas map[string]*Schema) []byte {
 		"DeleteLegRequest",
 		"TransferRequest",
 		"DTMFRequest",
+		"RTTRequest",
 		"VolumeRequest",
 		"TTSRequest",
 		"STTRequest",

@@ -135,6 +135,28 @@ func (l *Leg) DisableDTMF(ctx context.Context) (*StatusResponse, error) {
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/dtmf/reject", nil, &out)
 }
 
+// SendRTT send Real-Time Text (T.140) on a SIP leg
+func (l *Leg) SendRTT(ctx context.Context, req RTTRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/rtt", body, &out)
+}
+
+// AcceptRTTLeg enable RTT reception on a leg
+func (l *Leg) AcceptRTTLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/rtt/accept", nil, &out)
+}
+
+// RejectRTTLeg disable RTT reception on a leg
+func (l *Leg) RejectRTTLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/rtt/reject", nil, &out)
+}
+
 // Play start audio playback to a leg
 func (l *Leg) Play(ctx context.Context, req PlaybackRequest) (*PlaybackResponse, error) {
 	body, err := encodeJSON(req)
