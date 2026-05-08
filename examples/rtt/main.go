@@ -23,6 +23,9 @@
 //
 //	VOICEBLENDER_URL  default http://localhost:8080/v1
 //	LISTEN_ADDR       default :8090
+//	TLS_CERT_FILE     PEM certificate path; if set together with
+//	                  TLS_KEY_FILE the UI is served over HTTPS/WSS
+//	TLS_KEY_FILE      PEM private key path; pairs with TLS_CERT_FILE
 package main
 
 import (
@@ -77,6 +80,13 @@ func main() {
 
 	baseURL := envOr("VOICEBLENDER_URL", "http://localhost:8080/v1")
 	listenAddr := envOr("LISTEN_ADDR", ":8090")
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	if (certFile == "") != (keyFile == "") {
+		log.Error("TLS_CERT_FILE and TLS_KEY_FILE must both be set or both unset")
+		return
+	}
+	tlsEnabled := certFile != ""
 
 	a := &app{
 		client:  voiceblender.New(voiceblender.WithBaseURL(baseURL)),
@@ -112,9 +122,15 @@ func main() {
 	mux.HandleFunc("/ws", a.wsHandler)
 
 	srv := &http.Server{Addr: listenAddr, Handler: mux}
-	log.Info("rtt demo ready", "base_url", baseURL, "listen", listenAddr)
+	log.Info("rtt demo ready", "base_url", baseURL, "listen", listenAddr, "tls", tlsEnabled)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if tlsEnabled {
+			err = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("http", "error", err)
 			cancel()
 		}
