@@ -7,16 +7,49 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 )
 
 // EventStream receives real-time events from the VoiceBlender Streaming
-// Interface (VSI) WebSocket endpoint. Use Client.Events to create one.
+// Interface (VSI) WebSocket endpoint and (when used as a *EventStream
+// receiver) issues client-to-server commands over the same socket. Use
+// Client.Events to create one.
 type EventStream struct {
 	conn *websocket.Conn
-	mu   sync.Mutex
-	done bool
+
+	// writeMu serialises Conn.Write calls; coder/websocket allows one
+	// concurrent reader and one concurrent writer, but writes must not race.
+	writeMu sync.Mutex
+
+	// done guards Close so it's idempotent.
+	closeMu sync.Mutex
+	done    bool
+
+	// Inflight VSI commands awaiting their `<cmd>.result` / `error` reply,
+	// keyed by request_id.
+	inflightMu sync.Mutex
+	inflight   map[string]chan vsiResp
+
+	// Monotonic request_id counter.
+	nextID atomic.Uint64
+}
+
+// vsiResp carries one demuxed command response from the read loop to the
+// goroutine waiting in EventStream.call.
+type vsiResp struct {
+	frameType string          // "<cmd>.result" or "error"
+	data      json.RawMessage // the frame's `data` field (raw)
+}
+
+// vsiInFrame is the wire envelope used by VSI for both events and command
+// responses; only the fields we need to demux are decoded.
+type vsiInFrame struct {
+	Type      string          `json:"type"`
+	RequestID string          `json:"request_id,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
 }
 
 // EventStreamOption configures an EventStream.
@@ -65,12 +98,17 @@ func (c *Client) Events(ctx context.Context, opts ...EventStreamOption) (*EventS
 		return nil, fmt.Errorf("voiceblender: unexpected initial message: %s", data)
 	}
 
-	return &EventStream{conn: conn}, nil
+	return &EventStream{
+		conn:     conn,
+		inflight: make(map[string]chan vsiResp),
+	}, nil
 }
 
 // Next reads the next event from the stream. It blocks until an event is
 // available, the context is cancelled, or the connection is closed. Ping
-// frames from the server are automatically answered with pong.
+// frames from the server are automatically answered with pong, and command
+// responses (`<cmd>.result` / `error` for in-flight VSI commands) are
+// transparently routed to the waiting caller and not surfaced as events.
 func (s *EventStream) Next(ctx context.Context) (interface{}, error) {
 	for {
 		_, data, err := s.conn.Read(ctx)
@@ -78,17 +116,33 @@ func (s *EventStream) Next(ctx context.Context) (interface{}, error) {
 			return nil, err
 		}
 
-		var envelope struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(data, &envelope); err != nil {
+		var env vsiInFrame
+		if err := json.Unmarshal(data, &env); err != nil {
 			return nil, fmt.Errorf("voiceblender: decode event type: %w", err)
 		}
 
-		if envelope.Type == "ping" {
-			s.mu.Lock()
+		if env.Type == "ping" {
+			s.writeMu.Lock()
 			_ = s.conn.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`))
-			s.mu.Unlock()
+			s.writeMu.Unlock()
+			continue
+		}
+
+		// Demux command responses. A frame is a response iff it carries a
+		// request_id we issued and its type is `<cmd>.result` or `error`.
+		if env.RequestID != "" && (env.Type == "error" || strings.HasSuffix(env.Type, ".result")) {
+			s.inflightMu.Lock()
+			ch, ok := s.inflight[env.RequestID]
+			if ok {
+				delete(s.inflight, env.RequestID)
+			}
+			s.inflightMu.Unlock()
+			if ok {
+				// Buffered channel of size 1 — never blocks.
+				ch <- vsiResp{frameType: env.Type, data: env.Data}
+				continue
+			}
+			// Orphan response (unknown request_id) — drop silently.
 			continue
 		}
 
@@ -132,12 +186,98 @@ func (c *Client) RunEventStream(ctx context.Context, opts ...EventStreamOption) 
 
 // Close gracefully closes the WebSocket connection by sending a stop message.
 func (s *EventStream) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
 	if s.done {
 		return nil
 	}
 	s.done = true
+	s.writeMu.Lock()
 	_ = s.conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"stop"}`))
+	s.writeMu.Unlock()
 	return s.conn.Close(websocket.StatusNormalClosure, "client closed")
+}
+
+// VSIError is the error returned by VSI command methods when the server
+// replies with an `error` frame.
+type VSIError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *VSIError) Error() string {
+	if e.Code != 0 {
+		return fmt.Sprintf("voiceblender vsi: %d %s", e.Code, e.Message)
+	}
+	return "voiceblender vsi: " + e.Message
+}
+
+// call performs a VSI request/response round-trip. It writes a command frame
+// `{type, request_id, payload}` to the WebSocket, waits for the matching
+// `<cmd>.result` or `error` reply, and unmarshals the result's `data` into
+// `result` (which may be nil if the caller doesn't need the body).
+//
+// Used by the generated typed methods in vsi.go.
+func (s *EventStream) call(ctx context.Context, cmdType string, payload, result interface{}) error {
+	if s == nil || s.conn == nil {
+		return fmt.Errorf("voiceblender: vsi: stream not initialised")
+	}
+
+	rid := fmt.Sprintf("vsi-%d", s.nextID.Add(1))
+	ch := make(chan vsiResp, 1)
+
+	s.inflightMu.Lock()
+	if s.inflight == nil {
+		s.inflight = make(map[string]chan vsiResp)
+	}
+	s.inflight[rid] = ch
+	s.inflightMu.Unlock()
+
+	// Always clean up the inflight entry; if the response arrives after we
+	// give up (ctx timeout), Next() drops it as an orphan.
+	defer func() {
+		s.inflightMu.Lock()
+		delete(s.inflight, rid)
+		s.inflightMu.Unlock()
+	}()
+
+	frame := struct {
+		Type      string      `json:"type"`
+		RequestID string      `json:"request_id"`
+		Payload   interface{} `json:"payload,omitempty"`
+	}{cmdType, rid, payload}
+
+	data, err := json.Marshal(frame)
+	if err != nil {
+		return fmt.Errorf("voiceblender: vsi marshal %s: %w", cmdType, err)
+	}
+
+	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	s.writeMu.Lock()
+	err = s.conn.Write(writeCtx, websocket.MessageText, data)
+	s.writeMu.Unlock()
+	cancel()
+	if err != nil {
+		return fmt.Errorf("voiceblender: vsi write %s: %w", cmdType, err)
+	}
+
+	select {
+	case resp := <-ch:
+		if resp.frameType == "error" {
+			var e VSIError
+			_ = json.Unmarshal(resp.data, &e)
+			if e.Message == "" {
+				e.Message = "unknown error"
+			}
+			return &e
+		}
+		if result != nil && len(resp.data) > 0 {
+			if err := json.Unmarshal(resp.data, result); err != nil {
+				return fmt.Errorf("voiceblender: vsi decode %s.result: %w", cmdType, err)
+			}
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

@@ -179,7 +179,7 @@ func (a *app) runCall(ctx context.Context, ring *voiceblender.LegRingingEvent) {
 	// Subscribe before answering so we don't miss early events.
 	sub := leg.Subscribe(
 		voiceblender.EventLegConnected,
-		voiceblender.EventRttReceived,
+		voiceblender.EventRTTReceived,
 		voiceblender.EventLegDisconnected,
 	)
 	defer sub.Close()
@@ -207,7 +207,7 @@ func (a *app) runCall(ctx context.Context, ring *voiceblender.LegRingingEvent) {
 				a.log.Error("add leg to room", "leg_id", ring.LegID, "room_id", roomID, "error", err)
 			}
 			a.broadcast(uiEvent{Kind: "call_started", From: ring.From, Time: nowMs()})
-		case *voiceblender.RttReceivedEvent:
+		case *voiceblender.RTTReceivedEvent:
 			a.log.Info("rtt in", "leg_id", e.LegID, "seq", e.Seq, "loss", e.LossMarker, "text", e.Text)
 			a.broadcast(uiEvent{Kind: "rtt", Dir: "in", Text: e.Text, Loss: e.LossMarker, Time: nowMs()})
 		case *voiceblender.LegDisconnectedEvent:

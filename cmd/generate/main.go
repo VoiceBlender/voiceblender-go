@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -163,6 +164,104 @@ type openAPISpec struct {
 	} `yaml:"components"`
 }
 
+// ── AsyncAPI 3.0 model ────────────────────────────────────────────────────────
+//
+// Only the parts of the spec we actually use for VSI command generation are
+// modelled here: channels (just to walk message refs), operations (recv_* are
+// the client-callable commands), and the per-message envelope schemas under
+// components.messages.
+
+// orderedAAOperations preserves the order of operations: <name> entries.
+type orderedAAOperations struct {
+	keys []string
+	vals map[string]*aaOperation
+}
+
+func (oo *orderedAAOperations) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node for operations, got %v", n.Kind)
+	}
+	oo.vals = make(map[string]*aaOperation)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i].Value
+		var v aaOperation
+		if err := n.Content[i+1].Decode(&v); err != nil {
+			return fmt.Errorf("operation %q: %w", k, err)
+		}
+		oo.keys = append(oo.keys, k)
+		oo.vals[k] = &v
+	}
+	return nil
+}
+
+type asyncAPISpec struct {
+	Channels   map[string]*aaChannel `yaml:"channels"`
+	Operations orderedAAOperations   `yaml:"operations"`
+	Components struct {
+		Messages map[string]*aaMessage `yaml:"messages"`
+		Schemas  map[string]*Schema    `yaml:"schemas"`
+	} `yaml:"components"`
+}
+
+// aaChannel holds the messages map for one channel. The channel hop is purely
+// organisational — each entry is a $ref into components.messages — but we
+// need it because reply message refs in operations point at the channel
+// (e.g. #/channels/vsi/messages/list_legs.result), not directly at components.
+type aaChannel struct {
+	Address  string            `yaml:"address"`
+	Messages map[string]*aaRef `yaml:"messages"`
+}
+
+// aaRef is a single-field $ref wrapper.
+type aaRef struct {
+	Ref string `yaml:"$ref"`
+}
+
+// aaOperation models a `send_*` (server→client event) or `recv_*`
+// (client→server command) operation.
+type aaOperation struct {
+	Action   string   `yaml:"action"` // "send" | "receive"
+	Channel  *aaRef   `yaml:"channel"`
+	Summary  string   `yaml:"summary"`
+	Messages []*aaRef `yaml:"messages"`
+	Reply    *aaReply `yaml:"reply"`
+}
+
+// aaReply is the operation's reply field; for recv_* it lists `<cmd>.result`
+// and `error` messages.
+type aaReply struct {
+	Channel  *aaRef   `yaml:"channel"`
+	Messages []*aaRef `yaml:"messages"`
+}
+
+// aaMessage is a components.messages.<name> entry. Payload is the JSON Schema
+// of the wire frame (with `type`, `request_id`, and `payload`/`data`).
+type aaMessage struct {
+	Name    string  `yaml:"name"`
+	Title   string  `yaml:"title"`
+	Summary string  `yaml:"summary"`
+	Payload *Schema `yaml:"payload"`
+}
+
+// refTail returns the last segment of a $ref path (e.g.
+// "#/components/messages/send_leg_rtt" → "send_leg_rtt"). It also returns
+// false when the ref is cross-file (e.g. "openapi.yaml#/...") because the
+// referenced type lives outside this spec and we cannot resolve it locally.
+func refTail(ref string) (string, bool) {
+	if ref == "" {
+		return "", false
+	}
+	// Cross-file refs (containing a path before the '#') we cannot resolve.
+	if i := strings.Index(ref, "#"); i > 0 {
+		return "", false
+	}
+	if strings.HasPrefix(ref, "#/") {
+		ref = ref[2:]
+	}
+	parts := strings.Split(ref, "/")
+	return parts[len(parts)-1], true
+}
+
 // ── Naming helpers ────────────────────────────────────────────────────────────
 
 // abbrevs maps lowercase word segments to idiomatic Go uppercase abbreviations.
@@ -170,7 +269,7 @@ var abbrevs = map[string]string{
 	"id": "ID", "url": "URL", "uri": "URI", "sdp": "SDP",
 	"tts": "TTS", "stt": "STT", "dtmf": "DTMF", "sip": "SIP",
 	"api": "API", "s3": "S3", "ice": "ICE", "rtc": "RTC",
-	"webrtc": "WebRTC", "amd": "AMD",
+	"webrtc": "WebRTC", "amd": "AMD", "rtt": "RTT", "vsi": "VSI",
 }
 
 // toCamel converts snake_case or camelCase to idiomatic Go CamelCase.
@@ -261,10 +360,16 @@ var enumTypeRefs = map[string]map[string]string{
 	},
 }
 
-// goTypeName returns the Go type name for a schema name.
+// goTypeName returns the Go type name for a schema name. AsyncAPI uses
+// lowerCamelCase schema names (rttPayload, vsiStatusResponse, …) which we
+// need to convert to idiomatic Go via toCamel; OpenAPI schemas are already
+// CamelCased and pass through.
 func goTypeName(name string) string {
 	if r, ok := typeRenames[name]; ok {
 		return r
+	}
+	if name != "" && name[0] >= 'a' && name[0] <= 'z' {
+		return toCamel(name)
 	}
 	return name
 }
@@ -1146,6 +1251,243 @@ func genClientFile(ops []opInfo) []byte {
 	return fmtGo(b.Bytes())
 }
 
+// ── AsyncAPI / VSI generation ─────────────────────────────────────────────────
+//
+// genVSI emits a generated file with:
+//   - Go structs for every payload/result schema in asyncapi components.schemas.
+//   - One method per `recv_*` operation, attached to *EventStream, that calls
+//     the hand-written EventStream.call() helper to perform the round-trip.
+//
+// Cross-file refs (e.g. openapi.yaml#/components/schemas/LegView) are resolved
+// against the openapi schemas we already parsed; if the referenced type does
+// not exist there, the field/return falls back to json.RawMessage so output
+// still compiles.
+
+const vsiFileHeader = "// Code generated by cmd/generate from asyncapi.yaml. DO NOT EDIT.\n\n"
+
+// schemaGoType renders a JSON Schema as a Go type, handling refs (same-file
+// or cross-file), arrays, and primitive scalars.
+func schemaGoType(s *Schema, asyncSchemas, openSchemas map[string]*Schema) string {
+	if s == nil {
+		return "json.RawMessage"
+	}
+	if s.Ref != "" {
+		return resolveRefType(s.Ref, asyncSchemas, openSchemas)
+	}
+	switch s.Type {
+	case "array":
+		if s.Items != nil {
+			return "[]" + schemaGoType(s.Items, asyncSchemas, openSchemas)
+		}
+		return "[]json.RawMessage"
+	case "string":
+		return "string"
+	case "integer":
+		return "int"
+	case "boolean":
+		return "bool"
+	case "number":
+		return "float64"
+	case "object":
+		return "map[string]interface{}"
+	}
+	return "json.RawMessage"
+}
+
+// resolveRefType resolves a $ref to a Go type name. Cross-file refs whose
+// target schema isn't present in openSchemas degrade to json.RawMessage so
+// generation isn't blocked by a missing dependency.
+func resolveRefType(ref string, asyncSchemas, openSchemas map[string]*Schema) string {
+	hash := strings.Index(ref, "#")
+	if hash < 0 {
+		return "json.RawMessage"
+	}
+	tail := ref[hash+1:]
+	if strings.HasPrefix(tail, "/") {
+		tail = tail[1:]
+	}
+	parts := strings.Split(tail, "/")
+	name := parts[len(parts)-1]
+	if name == "" {
+		return "json.RawMessage"
+	}
+	crossFile := hash > 0
+	if crossFile {
+		// AsyncAPI refers to OpenAPI types by their final Go name, which may
+		// differ from the spec name (RoomCreateRequest → CreateRoomRequest).
+		// Accept either form.
+		if _, ok := openSchemas[name]; ok {
+			return goTypeName(name)
+		}
+		for orig, renamed := range typeRenames {
+			if renamed == name {
+				if _, ok := openSchemas[orig]; ok {
+					return renamed
+				}
+			}
+		}
+		return "json.RawMessage"
+	}
+	if _, ok := asyncSchemas[name]; ok {
+		return goTypeName(name)
+	}
+	if _, ok := openSchemas[name]; ok {
+		return goTypeName(name)
+	}
+	return goTypeName(name)
+}
+
+// frameField returns the Go type for a wire-frame field (`payload` for
+// command requests, `data` for `<cmd>.result` responses), and whether it
+// exists. Missing means the command takes no input or returns no body. A
+// schema with `type: "null"` is also treated as absent — that's how the
+// AsyncAPI generator marks "this command has no payload".
+func frameField(msg *aaMessage, fieldName string, asyncSchemas, openSchemas map[string]*Schema) (string, bool) {
+	if msg == nil || msg.Payload == nil {
+		return "", false
+	}
+	s := msg.Payload.Properties.vals[fieldName]
+	if s == nil || s.Type == "null" {
+		return "", false
+	}
+	return schemaGoType(s, asyncSchemas, openSchemas), true
+}
+
+// resolveOpMessage takes a $ref from an operation (request or reply) and
+// returns the corresponding *aaMessage. Op message refs point at the channel
+// (e.g. #/channels/vsi/messages/list_legs.result) where each entry is itself
+// a $ref into components.messages. Returns nil if either hop fails.
+func resolveOpMessage(spec *asyncAPISpec, ref string) *aaMessage {
+	tail, ok := refTail(ref)
+	if !ok || spec == nil {
+		return nil
+	}
+	// Try direct lookup in components.messages first (for refs that already
+	// point there directly).
+	if m, ok := spec.Components.Messages[tail]; ok {
+		return m
+	}
+	// Otherwise, search every channel for a matching message entry and
+	// follow its $ref into components.messages.
+	for _, ch := range spec.Channels {
+		entry, ok := ch.Messages[tail]
+		if !ok || entry == nil {
+			continue
+		}
+		inner, ok := refTail(entry.Ref)
+		if !ok {
+			continue
+		}
+		if m, ok := spec.Components.Messages[inner]; ok {
+			return m
+		}
+	}
+	return nil
+}
+
+// genVSI emits the vsi.go file given a parsed AsyncAPI spec and the openapi
+// schemas (for cross-file ref resolution).
+func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema) []byte {
+	var b bytes.Buffer
+	b.WriteString(vsiFileHeader)
+	b.WriteString("package voiceblender\n\n")
+	b.WriteString("import (\n")
+	b.WriteString("\t\"context\"\n")
+	b.WriteString("\t\"encoding/json\"\n")
+	b.WriteString(")\n\n")
+
+	asyncSchemas := spec.Components.Schemas
+
+	// 1. Emit Go structs for every payload / result schema in deterministic
+	//    order. Sort by Go type name for stable output.
+	type namedSchema struct {
+		raw string
+		s   *Schema
+	}
+	var namedSchemas []namedSchema
+	for k, s := range asyncSchemas {
+		namedSchemas = append(namedSchemas, namedSchema{k, s})
+	}
+	sort.Slice(namedSchemas, func(i, j int) bool {
+		return goTypeName(namedSchemas[i].raw) < goTypeName(namedSchemas[j].raw)
+	})
+	b.WriteString("// ── VSI payload / result schemas ──────────────────────────────────────────\n\n")
+	for _, ns := range namedSchemas {
+		genStruct(&b, ns.raw, ns.s)
+	}
+
+	// 2. Emit one method per recv_* operation, in document order.
+	b.WriteString("// ── VSI command methods on *EventStream ───────────────────────────────────\n\n")
+	for _, opName := range spec.Operations.keys {
+		op := spec.Operations.vals[opName]
+		if op.Action != "receive" || !strings.HasPrefix(opName, "recv_") {
+			continue
+		}
+		cmdType := strings.TrimPrefix(opName, "recv_")
+		methodName := toCamel(cmdType)
+
+		// Resolve the request message → its payload field type (if any).
+		var reqMsg *aaMessage
+		if len(op.Messages) > 0 {
+			reqMsg = resolveOpMessage(spec, op.Messages[0].Ref)
+		}
+		payloadType, hasPayload := frameField(reqMsg, "payload", asyncSchemas, openSchemas)
+
+		// Resolve the result message → its data field type (if any). A reply
+		// has both `<cmd>.result` and `error`; we want the former.
+		var resMsg *aaMessage
+		if op.Reply != nil {
+			for _, mr := range op.Reply.Messages {
+				name, ok := refTail(mr.Ref)
+				if !ok || name == "error" {
+					continue
+				}
+				resMsg = resolveOpMessage(spec, mr.Ref)
+				if resMsg != nil {
+					break
+				}
+			}
+		}
+		dataType, hasData := frameField(resMsg, "data", asyncSchemas, openSchemas)
+
+		// Build the godoc.
+		summary := op.Summary
+		if summary == "" && reqMsg != nil {
+			summary = reqMsg.Title
+		}
+		if summary != "" {
+			fmt.Fprintf(&b, "// %s %s\n", methodName, strings.ToLower(summary[:1])+summary[1:])
+		}
+
+		// Signature.
+		params := []string{"ctx context.Context"}
+		if hasPayload {
+			params = append(params, "payload "+payloadType)
+		}
+		retType := "error"
+		if hasData {
+			retType = "(" + dataType + ", error)"
+		}
+		fmt.Fprintf(&b, "func (s *EventStream) %s(%s) %s {\n",
+			methodName, strings.Join(params, ", "), retType)
+
+		// Body.
+		payloadArg := "nil"
+		if hasPayload {
+			payloadArg = "payload"
+		}
+		if hasData {
+			fmt.Fprintf(&b, "\tvar out %s\n", dataType)
+			fmt.Fprintf(&b, "\treturn out, s.call(ctx, %q, %s, &out)\n", cmdType, payloadArg)
+		} else {
+			fmt.Fprintf(&b, "\treturn s.call(ctx, %q, %s, nil)\n", cmdType, payloadArg)
+		}
+		b.WriteString("}\n\n")
+	}
+
+	return fmtGo(b.Bytes())
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func fmtGo(src []byte) []byte {
@@ -1169,6 +1511,7 @@ func write(path string, data []byte) {
 
 func main() {
 	openapi := flag.String("openapi", "", "path to openapi.yaml (required)")
+	asyncapi := flag.String("asyncapi", "", "path to asyncapi.yaml (optional; enables vsi.go generation)")
 	out := flag.String("out", ".", "output directory for generated .go files")
 	flag.Parse()
 
@@ -1211,5 +1554,18 @@ func main() {
 			continue
 		}
 		write(filepath.Join(*out, file), genClientFile(ops))
+	}
+
+	// Generate VSI command file from asyncapi.yaml.
+	if *asyncapi != "" {
+		raw, err := os.ReadFile(*asyncapi)
+		if err != nil {
+			log.Fatalf("read %s: %v", *asyncapi, err)
+		}
+		var aaSpec asyncAPISpec
+		if err := yaml.Unmarshal(raw, &aaSpec); err != nil {
+			log.Fatalf("parse asyncapi.yaml: %v", err)
+		}
+		write(filepath.Join(*out, "vsi.go"), genVSI(&aaSpec, schemas))
 	}
 }

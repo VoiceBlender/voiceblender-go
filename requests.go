@@ -47,7 +47,7 @@ type CreateLegRequest struct {
 	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
 	SpeechDetection *bool `json:"speech_detection,omitempty"`
 	// If true, the outbound INVITE offers Real-Time Text (ITU-T T.140 over RTP per RFC 4103) alongside audio. The peer may accept or ignore the m=text section; SDP negotiation either yields RTT or audio-only. Default: false.
-	Rtt bool `json:"rtt,omitempty"`
+	RTT bool `json:"rtt,omitempty"`
 }
 
 // AnswerLegRequest is a answer leg request.

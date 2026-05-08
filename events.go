@@ -162,8 +162,8 @@ type DTMFReceivedEvent struct {
 	Seq   int    `json:"seq,omitempty"`
 }
 
-// RttReceivedEvent is fired when: real-Time Text (T.140 / RFC 4103) chunk received from the remote
-type RttReceivedEvent struct {
+// RTTReceivedEvent is fired when: real-Time Text (T.140 / RFC 4103) chunk received from the remote
+type RTTReceivedEvent struct {
 	Event
 	// Leg identifier.
 	LegID string `json:"leg_id,omitempty"`
@@ -575,8 +575,8 @@ func ParseEvent(data []byte) (interface{}, error) {
 			return nil, err
 		}
 		return &e, nil
-	case EventRttReceived:
-		var e RttReceivedEvent
+	case EventRTTReceived:
+		var e RTTReceivedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
