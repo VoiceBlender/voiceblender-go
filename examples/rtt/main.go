@@ -46,10 +46,10 @@ var assets embed.FS
 
 // uiEvent is what the server pushes to the browser over the WebSocket.
 type uiEvent struct {
-	Kind string `json:"kind"`           // "call_started", "call_ended", "rtt"
+	Kind string `json:"kind"`           // "call_started", "call_ended", "rtt", "error"
 	From string `json:"from,omitempty"` // caller URI on call_started
 	Dir  string `json:"dir,omitempty"`  // "in" or "out" for kind=="rtt"
-	Text string `json:"text,omitempty"`
+	Text string `json:"text,omitempty"` // also error message for kind=="error"
 	Loss bool   `json:"loss,omitempty"` // RFC 2198 loss marker on incoming RTT
 	Time int64  `json:"time"`           // unix ms
 }
@@ -242,14 +242,17 @@ func (a *app) wsHandler(w http.ResponseWriter, r *http.Request) {
 		for {
 			_, data, err := conn.Read(ctx)
 			if err != nil {
+				a.log.Info("ws read end", "error", err)
 				return
 			}
 			var msg clientMsg
 			if err := json.Unmarshal(data, &msg); err != nil {
+				a.log.Warn("ws bad json", "raw", string(data), "error", err)
 				continue
 			}
+			a.log.Info("ws recv", "type", msg.Type, "text", msg.Text)
 			if msg.Type == "send" && msg.Text != "" {
-				a.sendRTT(ctx, msg.Text)
+				a.sendRTT(msg.Text)
 			}
 		}
 	}()
@@ -269,18 +272,24 @@ func (a *app) wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendRTT pushes outgoing text on the active leg and echoes it to all UI
-// clients so the local sender sees their own messages.
-func (a *app) sendRTT(ctx context.Context, text string) {
+// clients so the local sender sees their own messages. Uses a fresh context
+// so a flaky/closing browser WS doesn't tear down the API call mid-flight.
+func (a *app) sendRTT(text string) {
 	a.mu.Lock()
 	legID := a.curLeg
 	a.mu.Unlock()
 	if legID == "" {
+		a.broadcast(uiEvent{Kind: "error", Text: "no active call", Time: nowMs()})
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if _, err := a.client.Leg(legID).SendRTT(ctx, voiceblender.RTTRequest{Text: text}); err != nil {
 		a.log.Error("send rtt", "leg_id", legID, "error", err)
+		a.broadcast(uiEvent{Kind: "error", Text: "send failed: " + err.Error(), Time: nowMs()})
 		return
 	}
+	a.log.Info("rtt out", "leg_id", legID, "text", text)
 	a.broadcast(uiEvent{Kind: "rtt", Dir: "out", Text: text, Time: nowMs()})
 }
 

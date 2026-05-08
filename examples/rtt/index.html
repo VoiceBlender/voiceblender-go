@@ -192,6 +192,9 @@
         case 'rtt':
           appendRTT(ev.dir, ev.text || '', ev.loss);
           break;
+        case 'error':
+          appendSystem('error: ' + (ev.text || 'unknown'));
+          break;
       }
     };
     ws.onclose = () => {
