@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceBlender RTT</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font: 14px/1.4 -apple-system, system-ui, "Segoe UI", sans-serif;
+    background: #0e0f12; color: #d8dde7;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 12px 18px; border-bottom: 1px solid #20242c;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  header h1 {
+    margin: 0; font-size: 12px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: #9ba2b3;
+  }
+  header .right { display: flex; gap: 10px; align-items: center; }
+  #status, #webrtcStatus {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    background: #2a2f3a; color: #8e95a5;
+  }
+  #status.live { background: #163b25; color: #6dd58e; }
+  #webrtcStatus.live { background: #163b25; color: #6dd58e; }
+  #webrtcStatus.dial { background: #2c2410; color: #f0c14b; }
+  #call {
+    background: #2a5cdc; color: #fff; border: 0; border-radius: 999px;
+    padding: 4px 14px; font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  #call.hangup { background: #c1432a; }
+  #call:disabled { opacity: .5; cursor: not-allowed; }
+  #log {
+    flex: 1; overflow-y: auto; padding: 18px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .row { display: flex; }
+  .row.in  { justify-content: flex-start; }
+  .row.out { justify-content: flex-end; }
+  .bubble {
+    max-width: 70%; padding: 8px 12px; border-radius: 14px;
+    font-size: 14px; white-space: pre-wrap; word-wrap: break-word;
+  }
+  .row.in  .bubble {
+    background: #1b2030; color: #d8dde7;
+    border-bottom-left-radius: 4px;
+  }
+  .row.out .bubble {
+    background: #2a5cdc; color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.loss::before {
+    content: "⚠ "; color: #f5a524;
+  }
+  .system {
+    align-self: center; font-size: 11px; color: #6a7287;
+    padding: 4px 10px; background: #181b23; border-radius: 999px;
+  }
+  form {
+    display: flex; gap: 8px; padding: 12px 18px;
+    border-top: 1px solid #20242c; flex-shrink: 0;
+  }
+  input[type=text] {
+    flex: 1; background: #181b23; color: #fff;
+    border: 1px solid #2a2f3a; border-radius: 8px;
+    padding: 10px 12px; font-size: 14px; outline: none;
+  }
+  input[type=text]:focus { border-color: #2a5cdc; }
+  button {
+    background: #2a5cdc; color: #fff; border: 0; border-radius: 8px;
+    padding: 0 18px; font-size: 14px; font-weight: 500; cursor: pointer;
+  }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>VoiceBlender RTT</h1>
+    <div class="right">
+      <span id="webrtcStatus">webrtc off</span>
+      <span id="status">offline</span>
+      <button id="call">Call</button>
+    </div>
+  </header>
+
+  <audio id="remoteAudio" autoplay playsinline></audio>
+  <div id="log"></div>
+
+  <form id="form">
+    <input id="text" type="text" placeholder="Type a message…" autocomplete="off" disabled>
+    <button id="send" disabled>Send</button>
+  </form>
+
+<script>
+  const log = document.getElementById('log');
+  const status = document.getElementById('status');
+  const form = document.getElementById('form');
+  const text = document.getElementById('text');
+  const send = document.getElementById('send');
+  const callBtn = document.getElementById('call');
+  const webrtcStatus = document.getElementById('webrtcStatus');
+  const remoteAudio = document.getElementById('remoteAudio');
+
+  let active = false;
+  let pc = null;            // RTCPeerConnection
+  let webrtcLegID = null;   // server-allocated WebRTC leg ID
+  let pollAbort = null;     // AbortController for the ICE-candidate poll loop
+
+  function setWebRTCStatus(state) {
+    // state: 'off' | 'dialing' | 'live'
+    webrtcStatus.classList.remove('live', 'dial');
+    if (state === 'live') {
+      webrtcStatus.textContent = 'webrtc live';
+      webrtcStatus.classList.add('live');
+      callBtn.textContent = 'Hang up';
+      callBtn.classList.add('hangup');
+    } else if (state === 'dialing') {
+      webrtcStatus.textContent = 'connecting…';
+      webrtcStatus.classList.add('dial');
+      callBtn.textContent = 'Cancel';
+      callBtn.classList.add('hangup');
+    } else {
+      webrtcStatus.textContent = 'webrtc off';
+      callBtn.textContent = 'Call';
+      callBtn.classList.remove('hangup');
+    }
+  }
+
+  function setActive(on, from) {
+    active = on;
+    text.disabled = !on;
+    send.disabled = !on;
+    if (on) {
+      status.textContent = from ? 'on call · ' + from : 'on call';
+      status.classList.add('live');
+      text.focus();
+    } else {
+      status.textContent = 'idle';
+      status.classList.remove('live');
+    }
+  }
+
+  function newBubble(dir, body, loss) {
+    const row = document.createElement('div');
+    row.className = 'row ' + dir;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble' + (loss ? ' loss' : '');
+    bubble.textContent = body;
+    row.appendChild(bubble);
+    log.appendChild(row);
+    log.scrollTop = log.scrollHeight;
+    return bubble;
+  }
+
+  function appendSystem(body) {
+    const row = document.createElement('div');
+    row.className = 'system';
+    row.textContent = body;
+    log.appendChild(row);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // RTT arrives chunk-by-chunk — typically one or two characters per event
+  // as the remote types. Each chunk is appended to the current same-direction
+  // bubble in place so the incoming text view updates live letter-by-letter.
+  // A new bubble starts when the direction flips, when CR/LF arrives, or
+  // after a 2 s typing pause. Backspace (U+0008) deletes the last character.
+  let pending = null;
+  let pendingTimer = 0;
+
+  function applyChunk(bubble, chunk) {
+    let txt = bubble.textContent;
+    for (const ch of chunk) {
+      if (ch === '\b') {
+        txt = txt.slice(0, -1);
+      } else {
+        txt += ch;
+      }
+    }
+    bubble.textContent = txt;
+  }
+
+  function appendRTT(dir, chunk, loss) {
+    if (!chunk) return;
+    const breaksLine = /[\r\n]/.test(chunk);
+    if (pending && pending.dir === dir && !pending.closed) {
+      applyChunk(pending.bubble, chunk);
+      if (loss) pending.bubble.classList.add('loss');
+    } else {
+      const bubble = newBubble(dir, '', loss);
+      applyChunk(bubble, chunk);
+      pending = { dir, bubble, closed: false };
+    }
+    log.scrollTop = log.scrollHeight;
+    clearTimeout(pendingTimer);
+    if (breaksLine) {
+      pending.closed = true;
+    } else {
+      pendingTimer = setTimeout(() => { if (pending) pending.closed = true; }, 2000);
+    }
+  }
+
+  // WebSocket transport — bidirectional, low-latency. Reconnects with a
+  // small backoff if the connection drops (e.g. server restart).
+  let ws = null;
+  let backoff = 500;
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws');
+    ws.onopen = () => {
+      backoff = 500;
+      if (!active) status.textContent = 'idle';
+    };
+    ws.onmessage = (e) => {
+      const ev = JSON.parse(e.data);
+      switch (ev.kind) {
+        case 'call_started':
+          setActive(true, ev.from);
+          appendSystem('— call started —');
+          pending = null;
+          break;
+        case 'call_ended':
+          setActive(false);
+          appendSystem('— call ended —');
+          pending = null;
+          break;
+        case 'rtt':
+          appendRTT(ev.dir, ev.text || '', ev.loss);
+          break;
+        case 'webrtc_connected':
+          setWebRTCStatus('live');
+          appendSystem('— webrtc connected —');
+          break;
+        case 'webrtc_disconnected':
+          // Server-side notice that the WebRTC leg is gone. Tear down the
+          // browser peer connection if it's still live.
+          stopWebRTC(false);
+          appendSystem('— webrtc disconnected —');
+          break;
+        case 'error':
+          appendSystem('error: ' + (ev.text || 'unknown'));
+          break;
+      }
+    };
+    ws.onclose = () => {
+      ws = null;
+      status.textContent = 'reconnecting…';
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 5000);
+    };
+    ws.onerror = () => { /* onclose handles retry */ };
+  }
+  connect();
+
+  function sendText(t) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      appendSystem('not connected');
+      return;
+    }
+    ws.send(JSON.stringify({ type: 'send', text: t }));
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const t = text.value;
+    if (!t || !active) return;
+    text.value = '';
+    // Append CR LF so the receiving UA renders each Send as a discrete line.
+    // Remove this if you want to stream raw keystrokes character-by-character.
+    sendText(t + '\r\n');
+  });
+
+  // ── WebRTC ────────────────────────────────────────────────────────────────
+  //
+  // Click "Call" → grab the mic, build an SDP offer with all local ICE
+  // candidates gathered, POST it to the demo server (which forwards to
+  // VoiceBlender over the VSI WebSocket via webrtc_offer), apply the SDP
+  // answer, then poll the server for trickled remote ICE candidates.
+  // Hangup tears the peer connection down and tells the server to delete
+  // the leg (delete_leg over VSI).
+
+  callBtn.addEventListener('click', () => {
+    if (pc) {
+      stopWebRTC(true);
+    } else {
+      startWebRTC().catch((err) => {
+        console.error('webrtc start', err);
+        appendSystem('webrtc error: ' + (err.message || err));
+        stopWebRTC(false);
+      });
+    }
+  });
+
+  async function startWebRTC() {
+    setWebRTCStatus('dialing');
+    callBtn.disabled = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+      pc.ontrack = (ev) => { remoteAudio.srcObject = ev.streams[0]; };
+      pc.onconnectionstatechange = () => {
+        if (!pc) return;
+        const s = pc.connectionState;
+        if (s === 'failed' || s === 'closed') {
+          stopWebRTC(false);
+        }
+      };
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate && webrtcLegID) {
+          fetch('/api/webrtc/' + encodeURIComponent(webrtcLegID) + '/candidates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ev.candidate.toJSON()),
+          }).catch((err) => console.warn('post candidate', err));
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const resp = await fetch('/api/webrtc/offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sdp: pc.localDescription.sdp }),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error('offer ' + resp.status + ': ' + txt);
+      }
+      const data = await resp.json();
+      webrtcLegID = data.leg_id;
+      await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+
+      pollAbort = new AbortController();
+      pollRemoteCandidates(webrtcLegID, pollAbort.signal);
+    } finally {
+      callBtn.disabled = false;
+    }
+  }
+
+  // Server's gathered candidates may trickle in after the SDP answer was
+  // returned. Drain webrtc_get_candidates (proxied via /api/webrtc/{leg}/
+  // candidates) until the response says done:true.
+  async function pollRemoteCandidates(legID, signal) {
+    while (!signal.aborted && pc && webrtcLegID === legID) {
+      let data;
+      try {
+        const resp = await fetch('/api/webrtc/' + encodeURIComponent(legID) + '/candidates', { signal });
+        if (!resp.ok) break;
+        data = await resp.json();
+      } catch (err) {
+        if (signal.aborted) return;
+        console.warn('poll candidates', err);
+        break;
+      }
+      for (const c of (data.candidates || [])) {
+        try { await pc.addIceCandidate(c); } catch (err) { console.warn('addIceCandidate', err); }
+      }
+      if (data.done) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  function stopWebRTC(notifyServer) {
+    if (pollAbort) {
+      pollAbort.abort();
+      pollAbort = null;
+    }
+    if (notifyServer && webrtcLegID) {
+      fetch('/api/webrtc/' + encodeURIComponent(webrtcLegID) + '/hangup', { method: 'POST' })
+        .catch((err) => console.warn('hangup', err));
+    }
+    if (pc) {
+      try { pc.close(); } catch (_) {}
+      pc = null;
+    }
+    if (remoteAudio.srcObject) {
+      remoteAudio.srcObject.getTracks().forEach((t) => t.stop());
+      remoteAudio.srcObject = null;
+    }
+    webrtcLegID = null;
+    setWebRTCStatus('off');
+  }
+</script>
+</body>
+</html>

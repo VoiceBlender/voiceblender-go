@@ -16,6 +16,7 @@ const defaultBaseURL = "http://localhost:8080/v1"
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	events     *eventHub
 }
 
 // Option configures a Client.
@@ -41,11 +42,27 @@ func New(opts ...Option) *Client {
 	c := &Client{
 		baseURL:    defaultBaseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		events:     newEventHub(),
 	}
 	for _, o := range opts {
 		o(c)
 	}
 	return c
+}
+
+// Leg wraps an existing leg ID without making any API call. The returned
+// *Leg has only its ID and client back-reference populated; other fields
+// (Type, State, etc.) are zero. Use this when you already know the ID
+// (e.g. from an inbound webhook event) and just want to issue calls
+// against it. Call leg.Refresh-style fetch via GetLeg if you need the
+// server's current data.
+func (c *Client) Leg(id string) *Leg {
+	return &Leg{ID: id, client: c}
+}
+
+// Room wraps an existing room ID without making any API call. See Leg.
+func (c *Client) Room(id string) *Room {
+	return &Room{ID: id, client: c}
 }
 
 // do executes an HTTP request and decodes the response into out.

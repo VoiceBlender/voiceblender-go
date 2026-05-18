@@ -68,6 +68,8 @@ const (
 	EventLegUnhold WebhookEventType = "leg.unhold"
 	// EventDTMFReceived is the "dtmf.received" WebhookEventType value.
 	EventDTMFReceived WebhookEventType = "dtmf.received"
+	// EventRTTReceived is the "rtt.received" WebhookEventType value.
+	EventRTTReceived WebhookEventType = "rtt.received"
 	// EventSpeakingStarted is the "speaking.started" WebhookEventType value.
 	EventSpeakingStarted WebhookEventType = "speaking.started"
 	// EventSpeakingStopped is the "speaking.stopped" WebhookEventType value.
@@ -125,6 +127,9 @@ const (
 // ChannelInfo is referenced in the spec but not fully defined; use json.RawMessage to decode.
 type ChannelInfo = json.RawMessage
 
+// OfferedCodec is referenced in the spec but not fully defined; use json.RawMessage to decode.
+type OfferedCodec = json.RawMessage
+
 // Leg is a leg.
 type Leg struct {
 	// Instance identifier.
@@ -149,6 +154,7 @@ type Leg struct {
 	AppID string `json:"app_id,omitempty"`
 	// X-* headers from the inbound INVITE. Only present on sip_inbound legs.
 	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
+	client     *Client
 }
 
 // Room is a room.
@@ -163,4 +169,5 @@ type Room struct {
 	SampleRate int `json:"sample_rate"`
 	// Legs currently in this room.
 	Participants []Leg `json:"participants"`
+	client       *Client
 }

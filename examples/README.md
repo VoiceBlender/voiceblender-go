@@ -9,6 +9,7 @@ Each example is a self-contained `main` package in its own directory. Unless not
 | Directory | Description |
 |-----------|-------------|
 | [ivr/](ivr/) | Company IVR — answers inbound calls, plays a TTS menu, and routes callers to department rooms via DTMF |
+| [rtt/](rtt/) | Real-Time Text demo — answers an inbound RTT call and shows incoming/outgoing T.140 chunks in a small web UI (VSI WebSocket, Server-Sent Events) |
 
 ## Running an example
 

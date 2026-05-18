@@ -30,7 +30,8 @@ type LegRingingEvent struct {
 	// Callee URI (inbound only).
 	To string `json:"to,omitempty"`
 	// X-* custom SIP headers, if present.
-	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
+	SIPHeaders    map[string]string `json:"sip_headers,omitempty"`
+	OfferedCodecs []OfferedCodec    `json:"offered_codecs,omitempty"`
 }
 
 // LegEarlyMediaEvent is fired when: outbound leg received 183 Session Progress with SDP; media pipeline active
@@ -159,6 +160,20 @@ type DTMFReceivedEvent struct {
 	// DTMF digit received.
 	Digit string `json:"digit,omitempty"`
 	Seq   int    `json:"seq,omitempty"`
+}
+
+// RTTReceivedEvent is fired when: real-Time Text (T.140 / RFC 4103) chunk received from the remote
+type RTTReceivedEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+	// UTF-8 text chunk received from the remote.
+	Text string `json:"text,omitempty"`
+	// Per-leg monotonic sequence (independent of RTP sequence numbers).
+	Seq int `json:"seq,omitempty"`
+	// True when a U+FFFD has been prepended to indicate text was lost beyond what RFC 2198 redundancy could recover.
+	LossMarker bool `json:"loss_marker,omitempty"`
 }
 
 // SpeakingStartedEvent is fired when: participant started speaking
@@ -556,6 +571,12 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventDTMFReceived:
 		var e DTMFReceivedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventRTTReceived:
+		var e RTTReceivedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
