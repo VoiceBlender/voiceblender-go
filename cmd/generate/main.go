@@ -514,7 +514,10 @@ func genStruct(b *bytes.Buffer, schemaName string, s *Schema, extraFields ...str
 
 // ── File generators ───────────────────────────────────────────────────────────
 
-func genModels(schemas map[string]*Schema) []byte {
+// genModels emits models.go. asyncDefined is the set of schema names defined
+// in the asyncapi spec (used to suppress fallback type aliases that would
+// otherwise collide with structs vsi.go is going to emit).
+func genModels(schemas map[string]*Schema, asyncDefined map[string]bool) []byte {
 	var b bytes.Buffer
 	b.WriteString(generatedHeader)
 	b.WriteString("package voiceblender\n\n")
@@ -534,12 +537,18 @@ func genModels(schemas map[string]*Schema) []byte {
 	genEnum(&b, "WebhookEventType", "Event", "is the type of a webhook event.",
 		schemas["WebhookEventType"].Enum)
 
-	// Type alias for schemas referenced but not fully defined in the spec.
+	// Type alias for schemas referenced but not fully defined in the openapi
+	// spec. Skip names that asyncapi defines properly — those become real
+	// structs in vsi.go and the alias here would collide with them.
 	for _, name := range []string{"ChannelInfo", "OfferedCodec"} {
-		if _, ok := schemas[name]; !ok {
-			fmt.Fprintf(&b, "// %s is referenced in the spec but not fully defined; use json.RawMessage to decode.\n", name)
-			fmt.Fprintf(&b, "type %s = json.RawMessage\n\n", name)
+		if _, ok := schemas[name]; ok {
+			continue
 		}
+		if asyncDefined[name] {
+			continue
+		}
+		fmt.Fprintf(&b, "// %s is referenced in the spec but not fully defined; use json.RawMessage to decode.\n", name)
+		fmt.Fprintf(&b, "type %s = json.RawMessage\n\n", name)
 	}
 
 	// Core resource structs. Leg and Room carry an unexported back-reference to
@@ -1546,8 +1555,26 @@ func main() {
 
 	schemas := spec.Components.Schemas
 
+	// Parse asyncapi up front (if provided) so genModels can suppress fallback
+	// type aliases for schemas that vsi.go will emit as full structs.
+	var aaSpec *asyncAPISpec
+	asyncDefined := map[string]bool{}
+	if *asyncapi != "" {
+		raw, err := os.ReadFile(*asyncapi)
+		if err != nil {
+			log.Fatalf("read %s: %v", *asyncapi, err)
+		}
+		aaSpec = new(asyncAPISpec)
+		if err := yaml.Unmarshal(raw, aaSpec); err != nil {
+			log.Fatalf("parse asyncapi.yaml: %v", err)
+		}
+		for k := range aaSpec.Components.Schemas {
+			asyncDefined[k] = true
+		}
+	}
+
 	// Generate type files.
-	write(filepath.Join(*out, "models.go"), genModels(schemas))
+	write(filepath.Join(*out, "models.go"), genModels(schemas, asyncDefined))
 	write(filepath.Join(*out, "requests.go"), genRequests(schemas))
 	write(filepath.Join(*out, "responses.go"), genResponses(schemas))
 	if evData := genEvents(spec.XWebhooks); evData != nil {
@@ -1571,15 +1598,7 @@ func main() {
 	}
 
 	// Generate VSI command file from asyncapi.yaml.
-	if *asyncapi != "" {
-		raw, err := os.ReadFile(*asyncapi)
-		if err != nil {
-			log.Fatalf("read %s: %v", *asyncapi, err)
-		}
-		var aaSpec asyncAPISpec
-		if err := yaml.Unmarshal(raw, &aaSpec); err != nil {
-			log.Fatalf("parse asyncapi.yaml: %v", err)
-		}
-		write(filepath.Join(*out, "vsi.go"), genVSI(&aaSpec, schemas))
+	if aaSpec != nil {
+		write(filepath.Join(*out, "vsi.go"), genVSI(aaSpec, schemas))
 	}
 }

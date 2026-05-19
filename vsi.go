@@ -25,15 +25,148 @@ type AddLegToRoomResult struct {
 	LegID  string `json:"leg_id"`
 }
 
+// AgentDeepgramPayload is a agent deepgram payload.
+type AgentDeepgramPayload struct {
+	ID       string                 `json:"id"`
+	Settings map[string]interface{} `json:"settings,omitempty"`
+	Greeting string                 `json:"greeting,omitempty"`
+	Language string                 `json:"language,omitempty"`
+	APIKey   string                 `json:"api_key,omitempty"`
+}
+
+// AgentElevenLabsPayload is a agent eleven labs payload.
+type AgentElevenLabsPayload struct {
+	ID               string            `json:"id"`
+	AgentID          string            `json:"agent_id"`
+	FirstMessage     string            `json:"first_message,omitempty"`
+	Language         string            `json:"language,omitempty"`
+	DynamicVariables map[string]string `json:"dynamic_variables,omitempty"`
+	APIKey           string            `json:"api_key,omitempty"`
+}
+
+// AgentMessagePayload is a agent message payload.
+type AgentMessagePayload struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+}
+
+// AgentMessageResult is a agent message result.
+type AgentMessageResult struct {
+	Status string `json:"status"`
+}
+
+// AgentPipecatPayload is a agent pipecat payload.
+type AgentPipecatPayload struct {
+	ID           string `json:"id"`
+	WebsocketURL string `json:"websocket_url"`
+}
+
+// AgentStartLegResult is a agent start leg result.
+type AgentStartLegResult struct {
+	Status string `json:"status"`
+	LegID  string `json:"leg_id"`
+}
+
+// AgentStartRoomResult is a agent start room result.
+type AgentStartRoomResult struct {
+	Status string `json:"status"`
+	RoomID string `json:"room_id"`
+}
+
+// AgentStopResult is a agent stop result.
+type AgentStopResult struct {
+	Status string `json:"status"`
+}
+
+// AgentVAPIPayload is a agent v a p i payload.
+type AgentVAPIPayload struct {
+	ID             string            `json:"id"`
+	AssistantID    string            `json:"assistant_id"`
+	FirstMessage   string            `json:"first_message,omitempty"`
+	VariableValues map[string]string `json:"variable_values,omitempty"`
+	APIKey         string            `json:"api_key,omitempty"`
+}
+
+// AnswerLegPayload is a answer leg payload.
+type AnswerLegPayload struct {
+	ID              string `json:"id"`
+	SpeechDetection bool   `json:"speech_detection,omitempty"`
+	Codec           string `json:"codec,omitempty"`
+}
+
+// ChannelInfo is a channel info.
+type ChannelInfo struct {
+	Channel int `json:"channel"`
+	StartMs int `json:"start_ms"`
+	EndMs   int `json:"end_ms"`
+}
+
 // DTMFPayload is a d t m f payload.
 type DTMFPayload struct {
 	ID     string `json:"id"`
 	Digits string `json:"digits"`
 }
 
+// DeleteLegPayload is a delete leg payload.
+type DeleteLegPayload struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// EarlyMediaPayload is a early media payload.
+type EarlyMediaPayload struct {
+	ID    string `json:"id"`
+	Codec string `json:"codec,omitempty"`
+}
+
 // IDPayload is a i d payload.
 type IDPayload struct {
 	ID string `json:"id"`
+}
+
+// LegAMDStartPayload is a leg a m d start payload.
+type LegAMDStartPayload struct {
+	ID                    string `json:"id"`
+	InitialSilenceTimeout int    `json:"initial_silence_timeout,omitempty"`
+	GreetingDuration      int    `json:"greeting_duration,omitempty"`
+	AfterGreetingSilence  int    `json:"after_greeting_silence,omitempty"`
+	TotalAnalysisTime     int    `json:"total_analysis_time,omitempty"`
+	MinimumWordLength     int    `json:"minimum_word_length,omitempty"`
+	BeepTimeout           int    `json:"beep_timeout,omitempty"`
+}
+
+// PlaybackStartPayload is a playback start payload.
+type PlaybackStartPayload struct {
+	ID       string `json:"id"`
+	URL      string `json:"url"`
+	Tone     string `json:"tone"`
+	MimeType string `json:"mime_type"`
+	Repeat   int    `json:"repeat"`
+	Volume   int    `json:"volume"`
+}
+
+// PlaybackStartResult is a playback start result.
+type PlaybackStartResult struct {
+	PlaybackID string `json:"playback_id"`
+	Status     string `json:"status"`
+}
+
+// PlaybackStopResult is a playback stop result.
+type PlaybackStopResult struct {
+	Status string `json:"status"`
+}
+
+// PlaybackTargetPayload is a playback target payload.
+type PlaybackTargetPayload struct {
+	ID         string `json:"id"`
+	PlaybackID string `json:"playback_id"`
+}
+
+// PlaybackVolumePayload is a playback volume payload.
+type PlaybackVolumePayload struct {
+	ID         string `json:"id"`
+	PlaybackID string `json:"playback_id"`
+	Volume     int    `json:"volume"`
 }
 
 // RTTPayload is a r t t payload.
@@ -42,23 +175,106 @@ type RTTPayload struct {
 	Text string `json:"text"`
 }
 
+// RecordStartPayload is a record start payload.
+type RecordStartPayload struct {
+	ID           string `json:"id"`
+	Storage      string `json:"storage"`
+	MultiChannel bool   `json:"multi_channel"`
+	S3Bucket     string `json:"s3_bucket"`
+	S3Region     string `json:"s3_region"`
+	S3Endpoint   string `json:"s3_endpoint"`
+	S3Prefix     string `json:"s3_prefix"`
+	S3AccessKey  string `json:"s3_access_key"`
+	S3SecretKey  string `json:"s3_secret_key"`
+}
+
+// RecordingPauseResumeResult is a recording pause resume result.
+type RecordingPauseResumeResult struct {
+	Status string `json:"status"`
+}
+
+// RecordingStartResult is a recording start result.
+type RecordingStartResult struct {
+	Status string `json:"status"`
+	File   string `json:"file"`
+}
+
+// RecordingStopLegResult is a recording stop leg result.
+type RecordingStopLegResult struct {
+	Status string `json:"status"`
+	File   string `json:"file"`
+}
+
+// RecordingStopRoomResult is a recording stop room result.
+type RecordingStopRoomResult struct {
+	Status           string                 `json:"status"`
+	File             string                 `json:"file"`
+	MultiChannelFile string                 `json:"multi_channel_file,omitempty"`
+	Channels         map[string]ChannelInfo `json:"channels,omitempty"`
+}
+
 // RoomLegPayload is a room leg payload.
 type RoomLegPayload struct {
 	RoomID string `json:"room_id"`
 	LegID  string `json:"leg_id"`
 }
 
-// VSIAnswerLegPayload is a v s i answer leg payload.
-type VSIAnswerLegPayload struct {
-	ID              string `json:"id"`
-	SpeechDetection bool   `json:"speech_detection,omitempty"`
-	Codec           string `json:"codec,omitempty"`
+// STTStartLegResult is a s t t start leg result.
+type STTStartLegResult struct {
+	Status string `json:"status"`
+	LegID  string `json:"leg_id"`
 }
 
-// VSIDeleteLegPayload is a v s i delete leg payload.
-type VSIDeleteLegPayload struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason,omitempty"`
+// STTStartPayload is a s t t start payload.
+type STTStartPayload struct {
+	ID       string `json:"id"`
+	Language string `json:"language"`
+	Partial  bool   `json:"partial"`
+	Provider string `json:"provider,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+}
+
+// STTStartRoomResult is a s t t start room result.
+type STTStartRoomResult struct {
+	Status string   `json:"status"`
+	RoomID string   `json:"room_id"`
+	LegIds []string `json:"leg_ids"`
+}
+
+// STTStopResult is a s t t stop result.
+type STTStopResult struct {
+	Status string `json:"status"`
+}
+
+// TTSStartPayload is a t t s start payload.
+type TTSStartPayload struct {
+	ID       string `json:"id"`
+	Text     string `json:"text"`
+	Voice    string `json:"voice"`
+	ModelID  string `json:"model_id"`
+	Language string `json:"language,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+	Volume   int    `json:"volume"`
+	Provider string `json:"provider,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+}
+
+// TTSStartResult is a t t s start result.
+type TTSStartResult struct {
+	TTSID  string `json:"tts_id"`
+	Status string `json:"status"`
+}
+
+// TransferLegPayload is a transfer leg payload.
+type TransferLegPayload struct {
+	ID            string `json:"id"`
+	Target        string `json:"target"`
+	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
+}
+
+// TransferLegResult is a transfer leg result.
+type TransferLegResult struct {
+	Status string `json:"status"`
 }
 
 // VSIStatusResponse is a v s i status response.
@@ -105,13 +321,13 @@ func (s *EventStream) CreateLeg(ctx context.Context, payload CreateLegRequest) (
 }
 
 // AnswerLeg answer a ringing inbound leg
-func (s *EventStream) AnswerLeg(ctx context.Context, payload VSIAnswerLegPayload) (VSIStatusResponse, error) {
+func (s *EventStream) AnswerLeg(ctx context.Context, payload AnswerLegPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "answer_leg", payload, &out)
 }
 
 // DeleteLeg hang up a leg
-func (s *EventStream) DeleteLeg(ctx context.Context, payload VSIDeleteLegPayload) (VSIStatusResponse, error) {
+func (s *EventStream) DeleteLeg(ctx context.Context, payload DeleteLegPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "delete_leg", payload, &out)
 }
@@ -240,4 +456,220 @@ func (s *EventStream) AddLegToRoom(ctx context.Context, payload AddLegPayload) (
 func (s *EventStream) RemoveLegFromRoom(ctx context.Context, payload RoomLegPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "remove_leg_from_room", payload, &out)
+}
+
+// LegRing send a 180 Ringing on a SIP inbound leg
+func (s *EventStream) LegRing(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "leg_ring", payload, &out)
+}
+
+// LegEarlyMedia enable early media (183 Session Progress) on a SIP inbound leg
+func (s *EventStream) LegEarlyMedia(ctx context.Context, payload EarlyMediaPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "leg_early_media", payload, &out)
+}
+
+// LegAMDStart start Answering Machine Detection on a connected SIP leg
+func (s *EventStream) LegAMDStart(ctx context.Context, payload LegAMDStartPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "leg_amd_start", payload, &out)
+}
+
+// LegRecordStart start recording a leg (stereo when in a room or SIP, mono otherwise)
+func (s *EventStream) LegRecordStart(ctx context.Context, payload RecordStartPayload) (RecordingStartResult, error) {
+	var out RecordingStartResult
+	return out, s.call(ctx, "leg_record_start", payload, &out)
+}
+
+// RoomRecordStart start recording the full room mix (mono; multi_channel adds per-participant tracks)
+func (s *EventStream) RoomRecordStart(ctx context.Context, payload RecordStartPayload) (RecordingStartResult, error) {
+	var out RecordingStartResult
+	return out, s.call(ctx, "room_record_start", payload, &out)
+}
+
+// LegRecordPause pause a leg recording
+func (s *EventStream) LegRecordPause(ctx context.Context, payload IDPayload) (RecordingPauseResumeResult, error) {
+	var out RecordingPauseResumeResult
+	return out, s.call(ctx, "leg_record_pause", payload, &out)
+}
+
+// LegRecordResume resume a paused leg recording
+func (s *EventStream) LegRecordResume(ctx context.Context, payload IDPayload) (RecordingPauseResumeResult, error) {
+	var out RecordingPauseResumeResult
+	return out, s.call(ctx, "leg_record_resume", payload, &out)
+}
+
+// LegRecordStop stop a leg recording
+func (s *EventStream) LegRecordStop(ctx context.Context, payload IDPayload) (RecordingStopLegResult, error) {
+	var out RecordingStopLegResult
+	return out, s.call(ctx, "leg_record_stop", payload, &out)
+}
+
+// RoomRecordStop stop a room recording
+func (s *EventStream) RoomRecordStop(ctx context.Context, payload IDPayload) (RecordingStopRoomResult, error) {
+	var out RecordingStopRoomResult
+	return out, s.call(ctx, "room_record_stop", payload, &out)
+}
+
+// RoomRecordPause pause a room recording
+func (s *EventStream) RoomRecordPause(ctx context.Context, payload IDPayload) (RecordingPauseResumeResult, error) {
+	var out RecordingPauseResumeResult
+	return out, s.call(ctx, "room_record_pause", payload, &out)
+}
+
+// RoomRecordResume resume a paused room recording
+func (s *EventStream) RoomRecordResume(ctx context.Context, payload IDPayload) (RecordingPauseResumeResult, error) {
+	var out RecordingPauseResumeResult
+	return out, s.call(ctx, "room_record_resume", payload, &out)
+}
+
+// LegPlayStart start audio playback on a leg
+func (s *EventStream) LegPlayStart(ctx context.Context, payload PlaybackStartPayload) (PlaybackStartResult, error) {
+	var out PlaybackStartResult
+	return out, s.call(ctx, "leg_play_start", payload, &out)
+}
+
+// LegPlayStop stop a leg playback
+func (s *EventStream) LegPlayStop(ctx context.Context, payload PlaybackTargetPayload) (PlaybackStopResult, error) {
+	var out PlaybackStopResult
+	return out, s.call(ctx, "leg_play_stop", payload, &out)
+}
+
+// RoomPlayStart start audio playback on a room mix
+func (s *EventStream) RoomPlayStart(ctx context.Context, payload PlaybackStartPayload) (PlaybackStartResult, error) {
+	var out PlaybackStartResult
+	return out, s.call(ctx, "room_play_start", payload, &out)
+}
+
+// RoomPlayStop stop a room playback
+func (s *EventStream) RoomPlayStop(ctx context.Context, payload PlaybackTargetPayload) (PlaybackStopResult, error) {
+	var out PlaybackStopResult
+	return out, s.call(ctx, "room_play_stop", payload, &out)
+}
+
+// LegPlayVolume adjust the volume of an active leg playback
+func (s *EventStream) LegPlayVolume(ctx context.Context, payload PlaybackVolumePayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "leg_play_volume", payload, &out)
+}
+
+// RoomPlayVolume adjust the volume of an active room playback
+func (s *EventStream) RoomPlayVolume(ctx context.Context, payload PlaybackVolumePayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "room_play_volume", payload, &out)
+}
+
+// LegSTTStart start speech-to-text on a leg
+func (s *EventStream) LegSTTStart(ctx context.Context, payload STTStartPayload) (STTStartLegResult, error) {
+	var out STTStartLegResult
+	return out, s.call(ctx, "leg_stt_start", payload, &out)
+}
+
+// RoomSTTStart start speech-to-text on every participant of a room (auto-extends to legs that join later)
+func (s *EventStream) RoomSTTStart(ctx context.Context, payload STTStartPayload) (STTStartRoomResult, error) {
+	var out STTStartRoomResult
+	return out, s.call(ctx, "room_stt_start", payload, &out)
+}
+
+// LegSTTStop stop speech-to-text on a leg
+func (s *EventStream) LegSTTStop(ctx context.Context, payload IDPayload) (STTStopResult, error) {
+	var out STTStopResult
+	return out, s.call(ctx, "leg_stt_stop", payload, &out)
+}
+
+// RoomSTTStop stop speech-to-text on a room
+func (s *EventStream) RoomSTTStop(ctx context.Context, payload IDPayload) (STTStopResult, error) {
+	var out STTStopResult
+	return out, s.call(ctx, "room_stt_stop", payload, &out)
+}
+
+// LegTTS synthesize speech and play it on a leg
+func (s *EventStream) LegTTS(ctx context.Context, payload TTSStartPayload) (TTSStartResult, error) {
+	var out TTSStartResult
+	return out, s.call(ctx, "leg_tts", payload, &out)
+}
+
+// RoomTTS synthesize speech and play it into a room mix
+func (s *EventStream) RoomTTS(ctx context.Context, payload TTSStartPayload) (TTSStartResult, error) {
+	var out TTSStartResult
+	return out, s.call(ctx, "room_tts", payload, &out)
+}
+
+// LegTransfer initiate a SIP REFER transfer (blind or attended)
+func (s *EventStream) LegTransfer(ctx context.Context, payload TransferLegPayload) (TransferLegResult, error) {
+	var out TransferLegResult
+	return out, s.call(ctx, "leg_transfer", payload, &out)
+}
+
+// LegAgentElevenlabs attach an ElevenLabs Conversational AI agent to a leg
+func (s *EventStream) LegAgentElevenlabs(ctx context.Context, payload AgentElevenLabsPayload) (AgentStartLegResult, error) {
+	var out AgentStartLegResult
+	return out, s.call(ctx, "leg_agent_elevenlabs", payload, &out)
+}
+
+// LegAgentVapi attach a VAPI agent to a leg
+func (s *EventStream) LegAgentVapi(ctx context.Context, payload AgentVAPIPayload) (AgentStartLegResult, error) {
+	var out AgentStartLegResult
+	return out, s.call(ctx, "leg_agent_vapi", payload, &out)
+}
+
+// LegAgentPipecat attach a Pipecat bot to a leg
+func (s *EventStream) LegAgentPipecat(ctx context.Context, payload AgentPipecatPayload) (AgentStartLegResult, error) {
+	var out AgentStartLegResult
+	return out, s.call(ctx, "leg_agent_pipecat", payload, &out)
+}
+
+// LegAgentDeepgram attach a Deepgram Voice Agent to a leg
+func (s *EventStream) LegAgentDeepgram(ctx context.Context, payload AgentDeepgramPayload) (AgentStartLegResult, error) {
+	var out AgentStartLegResult
+	return out, s.call(ctx, "leg_agent_deepgram", payload, &out)
+}
+
+// RoomAgentElevenlabs attach an ElevenLabs Conversational AI agent to a room
+func (s *EventStream) RoomAgentElevenlabs(ctx context.Context, payload AgentElevenLabsPayload) (AgentStartRoomResult, error) {
+	var out AgentStartRoomResult
+	return out, s.call(ctx, "room_agent_elevenlabs", payload, &out)
+}
+
+// RoomAgentVapi attach a VAPI agent to a room
+func (s *EventStream) RoomAgentVapi(ctx context.Context, payload AgentVAPIPayload) (AgentStartRoomResult, error) {
+	var out AgentStartRoomResult
+	return out, s.call(ctx, "room_agent_vapi", payload, &out)
+}
+
+// RoomAgentPipecat attach a Pipecat bot to a room
+func (s *EventStream) RoomAgentPipecat(ctx context.Context, payload AgentPipecatPayload) (AgentStartRoomResult, error) {
+	var out AgentStartRoomResult
+	return out, s.call(ctx, "room_agent_pipecat", payload, &out)
+}
+
+// RoomAgentDeepgram attach a Deepgram Voice Agent to a room
+func (s *EventStream) RoomAgentDeepgram(ctx context.Context, payload AgentDeepgramPayload) (AgentStartRoomResult, error) {
+	var out AgentStartRoomResult
+	return out, s.call(ctx, "room_agent_deepgram", payload, &out)
+}
+
+// LegAgentStop detach the agent attached to a leg
+func (s *EventStream) LegAgentStop(ctx context.Context, payload IDPayload) (AgentStopResult, error) {
+	var out AgentStopResult
+	return out, s.call(ctx, "leg_agent_stop", payload, &out)
+}
+
+// RoomAgentStop detach the agent attached to a room
+func (s *EventStream) RoomAgentStop(ctx context.Context, payload IDPayload) (AgentStopResult, error) {
+	var out AgentStopResult
+	return out, s.call(ctx, "room_agent_stop", payload, &out)
+}
+
+// LegAgentMessage inject a text message into a leg agent session
+func (s *EventStream) LegAgentMessage(ctx context.Context, payload AgentMessagePayload) (AgentMessageResult, error) {
+	var out AgentMessageResult
+	return out, s.call(ctx, "leg_agent_message", payload, &out)
+}
+
+// RoomAgentMessage inject a text message into a room agent session
+func (s *EventStream) RoomAgentMessage(ctx context.Context, payload AgentMessagePayload) (AgentMessageResult, error) {
+	var out AgentMessageResult
+	return out, s.call(ctx, "room_agent_message", payload, &out)
 }

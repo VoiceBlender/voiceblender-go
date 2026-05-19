@@ -66,6 +66,8 @@ const (
 	EventLegHold WebhookEventType = "leg.hold"
 	// EventLegUnhold is the "leg.unhold" WebhookEventType value.
 	EventLegUnhold WebhookEventType = "leg.unhold"
+	// EventLegCommandFailed is the "leg.command_failed" WebhookEventType value.
+	EventLegCommandFailed WebhookEventType = "leg.command_failed"
 	// EventDTMFReceived is the "dtmf.received" WebhookEventType value.
 	EventDTMFReceived WebhookEventType = "dtmf.received"
 	// EventRTTReceived is the "rtt.received" WebhookEventType value.
@@ -123,9 +125,6 @@ const (
 	// EventAMDBeep is the "amd.beep" WebhookEventType value.
 	EventAMDBeep WebhookEventType = "amd.beep"
 )
-
-// ChannelInfo is referenced in the spec but not fully defined; use json.RawMessage to decode.
-type ChannelInfo = json.RawMessage
 
 // OfferedCodec is referenced in the spec but not fully defined; use json.RawMessage to decode.
 type OfferedCodec = json.RawMessage

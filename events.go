@@ -151,6 +151,15 @@ type LegUnholdEvent struct {
 	LegType string `json:"leg_type,omitempty"`
 }
 
+// LegCommandFailedEvent is fired when: an asynchronous leg command (202 Accepted) failed during execution
+type LegCommandFailedEvent struct {
+	Event
+	LegID   string `json:"leg_id,omitempty"`
+	AppID   string `json:"app_id,omitempty"`
+	Command string `json:"command,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 // DTMFReceivedEvent is fired when: dTMF digit received
 type DTMFReceivedEvent struct {
 	Event
@@ -565,6 +574,12 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventLegUnhold:
 		var e LegUnholdEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegCommandFailed:
+		var e LegCommandFailedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
