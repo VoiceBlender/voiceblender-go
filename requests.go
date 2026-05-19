@@ -26,9 +26,9 @@ type CreateLegRequest struct {
 	RingTimeout int `json:"ring_timeout,omitempty"`
 	// Maximum call duration in seconds after connect. Automatically hung up when reached. 0 or omitted = no limit.
 	MaxDuration int `json:"max_duration,omitempty"`
-	// Codec preference order.
+	// Codec preference order (sip legs only).
 	Codecs []string `json:"codecs,omitempty"`
-	// Custom SIP headers to include in the outbound INVITE (e.g. X-Correlation-ID).
+	// Custom headers to include in the outbound INVITE (sip/whatsapp) or the WebSocket upgrade request (websocket).
 	Headers map[string]string `json:"headers,omitempty"`
 	// Room ID to auto-add the leg to once media is ready (early_media or connected). If the room does not exist, it is automatically created.
 	RoomID string `json:"room_id,omitempty"`
@@ -46,8 +46,16 @@ type CreateLegRequest struct {
 	AppID string `json:"app_id,omitempty"`
 	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
 	SpeechDetection *bool `json:"speech_detection,omitempty"`
-	// If true, the outbound INVITE offers Real-Time Text (ITU-T T.140 over RTP per RFC 4103) alongside audio. The peer may accept or ignore the m=text section; SDP negotiation either yields RTT or audio-only. Default: false.
+	// For sip legs: offer Real-Time Text (ITU-T T.140 over RTP per RFC 4103) alongside audio. For websocket legs: enable the bidirectional text-message channel. Default: false.
 	RTT bool `json:"rtt,omitempty"`
+	// WebSocket target URL (ws:// or wss://) for outbound websocket legs. Required when type=websocket.
+	URL string `json:"url,omitempty"`
+	// PCM sample rate for websocket legs. The room's mixer automatically resamples between this and the room rate.
+	SampleRate int `json:"sample_rate,omitempty"`
+	// Audio framing for websocket legs. `binary` ships raw PCM as WebSocket binary frames; `json_base64` wraps PCM as `{"type":"audio","audio":"<base64>"}` text frames (browser-friendly).
+	WireFormat string `json:"wire_format,omitempty"`
+	// On-the-wire PCM sample encoding for websocket legs. v1 only supports `s16le`.
+	SampleFormat string `json:"sample_format,omitempty"`
 }
 
 // AnswerLegRequest is a answer leg request.

@@ -18,6 +18,10 @@ const (
 	LegTypeWhatsappIn LegType = "whatsapp_in"
 	// LegTypeWhatsappOut is the "whatsapp_out" LegType value.
 	LegTypeWhatsappOut LegType = "whatsapp_out"
+	// LegTypeWebsocketIn is the "websocket_in" LegType value.
+	LegTypeWebsocketIn LegType = "websocket_in"
+	// LegTypeWebsocketOut is the "websocket_out" LegType value.
+	LegTypeWebsocketOut LegType = "websocket_out"
 )
 
 // LegState is the current state of a leg.
@@ -66,6 +70,8 @@ const (
 	EventLegHold WebhookEventType = "leg.hold"
 	// EventLegUnhold is the "leg.unhold" WebhookEventType value.
 	EventLegUnhold WebhookEventType = "leg.unhold"
+	// EventLegCommandFailed is the "leg.command_failed" WebhookEventType value.
+	EventLegCommandFailed WebhookEventType = "leg.command_failed"
 	// EventDTMFReceived is the "dtmf.received" WebhookEventType value.
 	EventDTMFReceived WebhookEventType = "dtmf.received"
 	// EventRTTReceived is the "rtt.received" WebhookEventType value.
@@ -108,6 +114,12 @@ const (
 	EventRoomCreated WebhookEventType = "room.created"
 	// EventRoomDeleted is the "room.deleted" WebhookEventType value.
 	EventRoomDeleted WebhookEventType = "room.deleted"
+	// EventRoomBridged is the "room.bridged" WebhookEventType value.
+	EventRoomBridged WebhookEventType = "room.bridged"
+	// EventRoomBridgeUpdated is the "room.bridge_updated" WebhookEventType value.
+	EventRoomBridgeUpdated WebhookEventType = "room.bridge_updated"
+	// EventRoomUnbridged is the "room.unbridged" WebhookEventType value.
+	EventRoomUnbridged WebhookEventType = "room.unbridged"
 	// EventSTTText is the "stt.text" WebhookEventType value.
 	EventSTTText WebhookEventType = "stt.text"
 	// EventAgentConnected is the "agent.connected" WebhookEventType value.
@@ -123,9 +135,6 @@ const (
 	// EventAMDBeep is the "amd.beep" WebhookEventType value.
 	EventAMDBeep WebhookEventType = "amd.beep"
 )
-
-// ChannelInfo is referenced in the spec but not fully defined; use json.RawMessage to decode.
-type ChannelInfo = json.RawMessage
 
 // OfferedCodec is referenced in the spec but not fully defined; use json.RawMessage to decode.
 type OfferedCodec = json.RawMessage
@@ -152,9 +161,11 @@ type Leg struct {
 	Held bool `json:"held"`
 	// Application identifier for event stream filtering.
 	AppID string `json:"app_id,omitempty"`
-	// X-* headers from the inbound INVITE. Only present on sip_inbound legs.
+	// Deprecated: X-* headers from the inbound INVITE. Only present on sip_inbound legs. Use `headers` for new code; it carries the same map plus surfaces handshake headers for websocket legs.
 	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
-	client     *Client
+	// Custom protocol headers exposed by the leg's transport — X-/P- headers from a SIP INVITE, the WebSocket upgrade request, or supplied at outbound dial time.
+	Headers map[string]string `json:"headers,omitempty"`
+	client  *Client
 }
 
 // Room is a room.

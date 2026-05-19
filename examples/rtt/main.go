@@ -362,7 +362,7 @@ func (a *app) handleWebRTCLeg(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if _, err := a.stream.DeleteLeg(r.Context(), voiceblender.VSIDeleteLegPayload{ID: legID}); err != nil {
+		if _, err := a.stream.DeleteLeg(r.Context(), voiceblender.DeleteLegPayload{ID: legID}); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
@@ -541,4 +541,3 @@ func envOr(key, def string) string {
 	}
 	return def
 }
-

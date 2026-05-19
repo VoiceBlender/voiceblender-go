@@ -19,7 +19,7 @@ func (c *Client) ListLegs(ctx context.Context) ([]Leg, error) {
 	return out, nil
 }
 
-// CreateLeg originate an outbound SIP call
+// CreateLeg originate an outbound leg
 func (c *Client) CreateLeg(ctx context.Context, req CreateLegRequest) (*Leg, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
@@ -31,6 +31,12 @@ func (c *Client) CreateLeg(ctx context.Context, req CreateLegRequest) (*Leg, err
 	}
 	out.client = c
 	return &out, nil
+}
+
+// WsLeg connect a WebSocket as a leg (HTTP upgrade)
+func (c *Client) WsLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodGet, "/legs/websocket", nil, &out)
 }
 
 // GetLeg get a single leg

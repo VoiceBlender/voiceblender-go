@@ -151,6 +151,15 @@ type LegUnholdEvent struct {
 	LegType string `json:"leg_type,omitempty"`
 }
 
+// LegCommandFailedEvent is fired when: an asynchronous leg command (202 Accepted) failed during execution
+type LegCommandFailedEvent struct {
+	Event
+	LegID   string `json:"leg_id,omitempty"`
+	AppID   string `json:"app_id,omitempty"`
+	Command string `json:"command,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 // DTMFReceivedEvent is fired when: dTMF digit received
 type DTMFReceivedEvent struct {
 	Event
@@ -404,6 +413,48 @@ type RoomDeletedEvent struct {
 	AppID  string `json:"app_id,omitempty"`
 }
 
+// RoomBridgedEvent is fired when: two rooms' mixers were joined
+type RoomBridgedEvent struct {
+	Event
+	// Bridge identifier.
+	BridgeID string `json:"bridge_id,omitempty"`
+	// First bridged room.
+	RoomAID string `json:"room_a_id,omitempty"`
+	// Second bridged room.
+	RoomBID string `json:"room_b_id,omitempty"`
+	AppID   string `json:"app_id,omitempty"`
+	// Canonical direction relative to room_a_id: "bidirectional", "a_to_b", "b_to_a", or "none".
+	Direction string `json:"direction,omitempty"`
+}
+
+// RoomBridgeUpdatedEvent is fired when: a bridge's audio flow direction changed
+type RoomBridgeUpdatedEvent struct {
+	Event
+	// Bridge identifier.
+	BridgeID string `json:"bridge_id,omitempty"`
+	// First bridged room.
+	RoomAID string `json:"room_a_id,omitempty"`
+	// Second bridged room.
+	RoomBID string `json:"room_b_id,omitempty"`
+	AppID   string `json:"app_id,omitempty"`
+	// New canonical direction relative to room_a_id.
+	Direction string `json:"direction,omitempty"`
+}
+
+// RoomUnbridgedEvent is fired when: a bridge was torn down
+type RoomUnbridgedEvent struct {
+	Event
+	// Bridge identifier.
+	BridgeID string `json:"bridge_id,omitempty"`
+	// First bridged room.
+	RoomAID string `json:"room_a_id,omitempty"`
+	// Second bridged room.
+	RoomBID string `json:"room_b_id,omitempty"`
+	AppID   string `json:"app_id,omitempty"`
+	// Empty for an explicit delete, or "room_deleted" when a bridged room was deleted.
+	Reason string `json:"reason,omitempty"`
+}
+
 // STTTextEvent is fired when: speech-to-text transcript
 type STTTextEvent struct {
 	Event
@@ -569,6 +620,12 @@ func ParseEvent(data []byte) (interface{}, error) {
 			return nil, err
 		}
 		return &e, nil
+	case EventLegCommandFailed:
+		var e LegCommandFailedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
 	case EventDTMFReceived:
 		var e DTMFReceivedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
@@ -691,6 +748,24 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventRoomDeleted:
 		var e RoomDeletedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventRoomBridged:
+		var e RoomBridgedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventRoomBridgeUpdated:
+		var e RoomBridgeUpdatedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventRoomUnbridged:
+		var e RoomUnbridgedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
