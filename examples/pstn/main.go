@@ -33,7 +33,7 @@ import (
 	"os/signal"
 	"time"
 
-	voiceblender "github.com/VoiceBlender/voice-go"
+	voiceblender "github.com/VoiceBlender/voiceblender-go"
 )
 
 func main() {

@@ -49,7 +49,7 @@ import (
 	"sync"
 	"time"
 
-	voiceblender "github.com/VoiceBlender/voice-go"
+	voiceblender "github.com/VoiceBlender/voiceblender-go"
 	"github.com/coder/websocket"
 )
 

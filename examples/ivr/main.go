@@ -52,7 +52,7 @@ import (
 	"sync"
 	"time"
 
-	voiceblender "github.com/VoiceBlender/voice-go"
+	voiceblender "github.com/VoiceBlender/voiceblender-go"
 )
 
 // ivrState is the current menu position for a call.

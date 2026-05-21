@@ -1,4 +1,4 @@
-module github.com/VoiceBlender/voice-go/cmd/generate
+module github.com/VoiceBlender/voiceblender-go/cmd/generate
 
 go 1.23
 

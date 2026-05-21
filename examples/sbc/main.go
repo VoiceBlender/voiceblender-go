@@ -35,7 +35,7 @@ import (
 	"os/signal"
 	"strings"
 
-	voiceblender "github.com/VoiceBlender/voice-go"
+	voiceblender "github.com/VoiceBlender/voiceblender-go"
 )
 
 // forcedCodec is selected for both inbound (183 + 200 OK SDPs) and outbound

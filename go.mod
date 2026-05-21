@@ -1,4 +1,4 @@
-module github.com/VoiceBlender/voice-go
+module github.com/VoiceBlender/voiceblender-go
 
 go 1.23
 
