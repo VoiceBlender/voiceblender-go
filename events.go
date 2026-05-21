@@ -455,6 +455,25 @@ type RoomUnbridgedEvent struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// RoomRoutingChangedEvent is fired when: the room's audio routing matrix changed
+type RoomRoutingChangedEvent struct {
+	Event
+	RoomID string              `json:"room_id,omitempty"`
+	AppID  string              `json:"app_id,omitempty"`
+	Matrix map[string][]string `json:"matrix,omitempty"`
+	Reason string              `json:"reason,omitempty"`
+}
+
+// LegRoleChangedEvent is fired when: a leg's routing role changed
+type LegRoleChangedEvent struct {
+	Event
+	LegID   string `json:"leg_id,omitempty"`
+	RoomID  string `json:"room_id,omitempty"`
+	AppID   string `json:"app_id,omitempty"`
+	OldRole string `json:"old_role,omitempty"`
+	NewRole string `json:"new_role,omitempty"`
+}
+
 // STTTextEvent is fired when: speech-to-text transcript
 type STTTextEvent struct {
 	Event
@@ -766,6 +785,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventRoomUnbridged:
 		var e RoomUnbridgedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventRoomRoutingChanged:
+		var e RoomRoutingChangedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegRoleChanged:
+		var e LegRoleChangedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

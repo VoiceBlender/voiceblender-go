@@ -16,6 +16,7 @@ type AddLegPayload struct {
 	Mute       bool   `json:"mute,omitempty"`
 	Deaf       bool   `json:"deaf,omitempty"`
 	AcceptDTMF bool   `json:"accept_dtmf,omitempty"`
+	Role       string `json:"role,omitempty"`
 }
 
 // AddLegToRoomResult is a add leg to room result.
@@ -253,6 +254,29 @@ type RoomLegPayload struct {
 	LegID  string `json:"leg_id"`
 }
 
+// RoomRoutingSetPayload is a room routing set payload.
+type RoomRoutingSetPayload struct {
+	RoomID string              `json:"room_id"`
+	Matrix map[string][]string `json:"matrix"`
+}
+
+// RoomRoutingUpdatePayload is a room routing update payload.
+type RoomRoutingUpdatePayload struct {
+	RoomID  string             `json:"room_id"`
+	Updates []RoutingRowUpdate `json:"updates"`
+}
+
+// RoomRoutingView is a room routing view.
+type RoomRoutingView struct {
+	Matrix map[string][]string `json:"matrix"`
+}
+
+// RoutingRowUpdate is a routing row update.
+type RoutingRowUpdate struct {
+	ListenerRole string   `json:"listener_role"`
+	Sources      []string `json:"sources"`
+}
+
 // STTStartLegResult is a s t t start leg result.
 type STTStartLegResult struct {
 	Status string `json:"status"`
@@ -278,6 +302,12 @@ type STTStartRoomResult struct {
 // STTStopResult is a s t t stop result.
 type STTStopResult struct {
 	Status string `json:"status"`
+}
+
+// SetLegRolePayload is a set leg role payload.
+type SetLegRolePayload struct {
+	LegID string `json:"leg_id"`
+	Role  string `json:"role"`
 }
 
 // TTSStartPayload is a t t s start payload.
@@ -520,6 +550,30 @@ func (s *EventStream) BridgeUpdate(ctx context.Context, payload BridgeUpdatePayl
 func (s *EventStream) BridgeDelete(ctx context.Context, payload BridgeRefPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "bridge_delete", payload, &out)
+}
+
+// RoomRoutingGet get a room's audio routing matrix
+func (s *EventStream) RoomRoutingGet(ctx context.Context, payload IDPayload) (RoomRoutingView, error) {
+	var out RoomRoutingView
+	return out, s.call(ctx, "room_routing_get", payload, &out)
+}
+
+// RoomRoutingSet replace a room's audio routing matrix
+func (s *EventStream) RoomRoutingSet(ctx context.Context, payload RoomRoutingSetPayload) (RoomRoutingView, error) {
+	var out RoomRoutingView
+	return out, s.call(ctx, "room_routing_set", payload, &out)
+}
+
+// RoomRoutingUpdate update selected rows of a room's audio routing matrix
+func (s *EventStream) RoomRoutingUpdate(ctx context.Context, payload RoomRoutingUpdatePayload) (RoomRoutingView, error) {
+	var out RoomRoutingView
+	return out, s.call(ctx, "room_routing_update", payload, &out)
+}
+
+// SetLegRole change a leg's routing role (recomputes the room matrix if the leg is in a room)
+func (s *EventStream) SetLegRole(ctx context.Context, payload SetLegRolePayload) (json.RawMessage, error) {
+	var out json.RawMessage
+	return out, s.call(ctx, "set_leg_role", payload, &out)
 }
 
 // LegRing send a 180 Ringing on a SIP inbound leg

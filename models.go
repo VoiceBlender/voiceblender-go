@@ -120,6 +120,10 @@ const (
 	EventRoomBridgeUpdated WebhookEventType = "room.bridge_updated"
 	// EventRoomUnbridged is the "room.unbridged" WebhookEventType value.
 	EventRoomUnbridged WebhookEventType = "room.unbridged"
+	// EventRoomRoutingChanged is the "room.routing_changed" WebhookEventType value.
+	EventRoomRoutingChanged WebhookEventType = "room.routing_changed"
+	// EventLegRoleChanged is the "leg.role_changed" WebhookEventType value.
+	EventLegRoleChanged WebhookEventType = "leg.role_changed"
 	// EventSTTText is the "stt.text" WebhookEventType value.
 	EventSTTText WebhookEventType = "stt.text"
 	// EventAgentConnected is the "agent.connected" WebhookEventType value.
@@ -159,6 +163,8 @@ type Leg struct {
 	AcceptDTMF bool `json:"accept_dtmf"`
 	// Whether the call is on hold (SIP legs only).
 	Held bool `json:"held"`
+	// Routing role used by the room's audio routing matrix (e.g. "customer", "agent", "supervisor"). Empty string means unroled (full mesh).
+	Role string `json:"role,omitempty"`
 	// Application identifier for event stream filtering.
 	AppID string `json:"app_id,omitempty"`
 	// Deprecated: X-* headers from the inbound INVITE. Only present on sip_inbound legs. Use `headers` for new code; it carries the same map plus surfaces handshake headers for websocket legs.

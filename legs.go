@@ -308,3 +308,17 @@ func (l *Leg) StartAMD(ctx context.Context, req AMDParams) (*StatusResponse, err
 	var out StatusResponse
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/amd", body, &out)
 }
+
+// SetRole change a leg's routing role
+func (l *Leg) SetRole(ctx context.Context, req SetLegRoleRequest) (*Leg, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out Leg
+	if err := l.client.do(ctx, http.MethodPatch, "/legs/"+l.ID+"/role", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = l.client
+	return &out, nil
+}

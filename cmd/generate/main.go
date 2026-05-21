@@ -605,6 +605,9 @@ func genRequests(schemas map[string]*Schema) []byte {
 		"WebRTCOfferRequest",
 		"RoomCreateRequest",
 		"AddLegRequest",
+		"SetLegRoleRequest",
+		"RoomRoutingRequest",
+		"RoomRoutingUpdateRequest",
 	}
 	for _, name := range requestSchemas {
 		s, ok := schemas[name]
@@ -952,9 +955,13 @@ var methodNameOverrides = map[string]string{
 	"agentLegPipecat":    "PipecatAgent",
 	"agentLegDeepgram":   "DeepgramAgent",
 	"agentLegMessage":    "AgentMessage",
+	"setLegRole":         "SetRole",
 
 	// Room-scoped: drop "Room" suffix.
 	"deleteRoom":          "Delete",
+	"getRoomRouting":      "GetRouting",
+	"setRoomRouting":      "SetRouting",
+	"updateRoomRouting":   "UpdateRouting",
 	"addLegToRoom":        "AddLeg",
 	"removeLegFromRoom":   "RemoveLeg",
 	"playRoom":            "Play",

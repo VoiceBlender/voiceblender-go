@@ -65,6 +65,32 @@ func (r *Room) RemoveLeg(ctx context.Context, legID string) (*StatusResponse, er
 	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/legs/"+legID, nil, &out)
 }
 
+// GetRouting get the room's audio routing matrix
+func (r *Room) GetRouting(ctx context.Context) (*RoomRoutingView, error) {
+	var out RoomRoutingView
+	return &out, r.client.do(ctx, http.MethodGet, "/rooms/"+r.ID+"/routing", nil, &out)
+}
+
+// SetRouting replace the room's audio routing matrix
+func (r *Room) SetRouting(ctx context.Context, req RoomRoutingRequest) (*RoomRoutingView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out RoomRoutingView
+	return &out, r.client.do(ctx, http.MethodPut, "/rooms/"+r.ID+"/routing", body, &out)
+}
+
+// UpdateRouting replace selected rows of the room's audio routing matrix
+func (r *Room) UpdateRouting(ctx context.Context, req RoomRoutingUpdateRequest) (*RoomRoutingView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out RoomRoutingView
+	return &out, r.client.do(ctx, http.MethodPatch, "/rooms/"+r.ID+"/routing", body, &out)
+}
+
 // Play play audio to a room
 func (r *Room) Play(ctx context.Context, req PlaybackRequest) (*PlaybackResponse, error) {
 	body, err := encodeJSON(req)

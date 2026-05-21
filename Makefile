@@ -10,7 +10,7 @@ ASYNCAPI     := $(VOICEBLENDER)/asyncapi.yaml
 # (models.go, requests.go, responses.go, events.go, legs.go, rooms.go,
 # webrtc.go, vsi.go). Run this whenever either spec changes.
 generate:
-	cd cmd/generate && go mod tidy && go run . \
+	cd cmd/generate && GOWORK=off go mod tidy && GOWORK=off go run . \
 		-openapi $(abspath $(OPENAPI)) \
 		-asyncapi $(abspath $(ASYNCAPI)) \
 		-out $(abspath .)

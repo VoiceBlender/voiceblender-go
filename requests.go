@@ -252,6 +252,26 @@ type AddLegRequest struct {
 	Deaf *bool `json:"deaf,omitempty"`
 	// If set, control whether this leg receives DTMF digits broadcast from other legs in the same room. Omit to leave current state untouched (default for new legs is true).
 	AcceptDTMF *bool `json:"accept_dtmf,omitempty"`
+	// If set, apply this routing role to the leg atomically before it joins the mixer. The room's routing matrix (see PUT /v1/rooms/{id}/routing) decides which other legs this leg hears and is heard by based on roles. Pass "" to clear the role (full mesh). Omit to leave the current role untouched.
+	Role string `json:"role,omitempty"`
+}
+
+// SetLegRoleRequest is a set leg role request.
+type SetLegRoleRequest struct {
+	// New routing role for the leg. The room's routing matrix decides which other legs this leg hears and is heard by based on roles. Pass an empty string to clear the role (full mesh).
+	Role string `json:"role"`
+}
+
+// RoomRoutingRequest is a room routing request.
+type RoomRoutingRequest struct {
+	// Listener-role → list of allowed source roles. Omitted listener roles default to full mesh. Empty list = hears nothing.
+	Matrix map[string][]string `json:"matrix"`
+}
+
+// RoomRoutingUpdateRequest is a room routing update request.
+type RoomRoutingUpdateRequest struct {
+	// Per-listener-role row replacements applied as a single atomic update.
+	Updates []RoutingRowUpdate `json:"updates"`
 }
 
 // ICECandidateInit is a WebRTC ICE candidate initialisation struct.
