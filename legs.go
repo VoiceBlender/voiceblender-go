@@ -39,6 +39,12 @@ func (c *Client) WsLeg(ctx context.Context) (*StatusResponse, error) {
 	return &out, c.do(ctx, http.MethodGet, "/legs/websocket", nil, &out)
 }
 
+// MoqLeg connect a MoQ (Media over QUIC) leg (WebTransport extended-CONNECT, experimental)
+func (c *Client) MoqLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, "/legs/moq", nil, &out)
+}
+
 // GetLeg get a single leg
 func (c *Client) GetLeg(ctx context.Context, id string) (*Leg, error) {
 	var out Leg
