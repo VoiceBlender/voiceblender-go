@@ -560,6 +560,42 @@ type AMDBeepEvent struct {
 	BeepMs int `json:"beep_ms,omitempty"`
 }
 
+// SIPRegistrationActiveEvent is fired when: sIP AOR registration created or refreshed (one event per Contact)
+type SIPRegistrationActiveEvent struct {
+	Event
+	AppID string `json:"app_id,omitempty"`
+	// Canonical Address of Record (e.g. sip:alice@vb.example).
+	Aor string `json:"aor,omitempty"`
+	// Contact URI registered by the UA.
+	Contact string `json:"contact,omitempty"`
+	// Transport-layer socket (ip:port) the REGISTER arrived on.
+	Socket string `json:"socket,omitempty"`
+	// Transport: udp | tcp | tls.
+	Transport string `json:"transport,omitempty"`
+	// User-Agent header from the REGISTER, if present.
+	UserAgent string `json:"user_agent,omitempty"`
+	// Call-ID of the most recent REGISTER.
+	CallID string `json:"call_id,omitempty"`
+	// Expiry granted to the binding (clamped to SIP_REGISTRATION_MAX_EXPIRES_SECONDS).
+	GrantedExpiresSeconds int `json:"granted_expires_seconds,omitempty"`
+	// Absolute expiry time (RFC 3339).
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+// SIPRegistrationExpiredEvent is fired when: sIP AOR registration removed (TTL, explicit unregister, force-delete, or single-binding replacement)
+type SIPRegistrationExpiredEvent struct {
+	Event
+	AppID string `json:"app_id,omitempty"`
+	// Canonical Address of Record.
+	Aor string `json:"aor,omitempty"`
+	// Contact URI that was unbound.
+	Contact string `json:"contact,omitempty"`
+	// Transport-layer socket that held the binding.
+	Socket string `json:"socket,omitempty"`
+	// Why the binding was removed: ttl, unregistered, forced, or replaced.
+	Reason string `json:"reason,omitempty"`
+}
+
 // ParseEvent unmarshals raw JSON into the appropriate typed event struct.
 func ParseEvent(data []byte) (interface{}, error) {
 	var base Event
@@ -839,6 +875,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventAMDBeep:
 		var e AMDBeepEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPRegistrationActive:
+		var e SIPRegistrationActiveEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPRegistrationExpired:
+		var e SIPRegistrationExpiredEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
