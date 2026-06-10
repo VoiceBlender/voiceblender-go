@@ -22,6 +22,12 @@ const (
 	LegTypeWebsocketIn LegType = "websocket_in"
 	// LegTypeWebsocketOut is the "websocket_out" LegType value.
 	LegTypeWebsocketOut LegType = "websocket_out"
+	// LegTypeMoqIn is the "moq_in" LegType value.
+	LegTypeMoqIn LegType = "moq_in"
+	// LegTypeLivekitPublish is the "livekit_publish" LegType value.
+	LegTypeLivekitPublish LegType = "livekit_publish"
+	// LegTypeLivekitParticipant is the "livekit_participant" LegType value.
+	LegTypeLivekitParticipant LegType = "livekit_participant"
 )
 
 // LegState is the current state of a leg.
@@ -138,6 +144,10 @@ const (
 	EventAMDResult WebhookEventType = "amd.result"
 	// EventAMDBeep is the "amd.beep" WebhookEventType value.
 	EventAMDBeep WebhookEventType = "amd.beep"
+	// EventSIPRegistrationActive is the "sip.registration_active" WebhookEventType value.
+	EventSIPRegistrationActive WebhookEventType = "sip.registration_active"
+	// EventSIPRegistrationExpired is the "sip.registration_expired" WebhookEventType value.
+	EventSIPRegistrationExpired WebhookEventType = "sip.registration_expired"
 )
 
 // OfferedCodec is referenced in the spec but not fully defined; use json.RawMessage to decode.

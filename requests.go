@@ -56,6 +56,8 @@ type CreateLegRequest struct {
 	WireFormat string `json:"wire_format,omitempty"`
 	// On-the-wire PCM sample encoding for websocket legs. v1 only supports `s16le`.
 	SampleFormat string `json:"sample_format,omitempty"`
+	// LiveKit room join parameters (only used when type=livekit_room).
+	Livekit interface{} `json:"livekit,omitempty"`
 }
 
 // AnswerLegRequest is a answer leg request.

@@ -248,6 +248,26 @@ type RecordingStopRoomResult struct {
 	Channels         map[string]ChannelInfo `json:"channels,omitempty"`
 }
 
+// RegistrationView is a registration view.
+type RegistrationView struct {
+	Aor                   string `json:"aor"`
+	Contact               string `json:"contact"`
+	Socket                string `json:"socket"`
+	Transport             string `json:"transport"`
+	UserAgent             string `json:"user_agent,omitempty"`
+	CallID                string `json:"call_id,omitempty"`
+	AppID                 string `json:"app_id,omitempty"`
+	CreatedAt             string `json:"created_at"`
+	LastRefresh           string `json:"last_refresh"`
+	ExpiresAt             string `json:"expires_at"`
+	GrantedExpiresSeconds int    `json:"granted_expires_seconds"`
+}
+
+// RegistrationsResponse is a registrations response.
+type RegistrationsResponse struct {
+	Bindings []RegistrationView `json:"bindings"`
+}
+
 // RoomLegPayload is a room leg payload.
 type RoomLegPayload struct {
 	RoomID string `json:"room_id"`
@@ -790,4 +810,10 @@ func (s *EventStream) LegAgentMessage(ctx context.Context, payload AgentMessageP
 func (s *EventStream) RoomAgentMessage(ctx context.Context, payload AgentMessagePayload) (AgentMessageResult, error) {
 	var out AgentMessageResult
 	return out, s.call(ctx, "room_agent_message", payload, &out)
+}
+
+// ListSIPRegistrations list active SIP AOR registrations
+func (s *EventStream) ListSIPRegistrations(ctx context.Context) (RegistrationsResponse, error) {
+	var out RegistrationsResponse
+	return out, s.call(ctx, "list_sip_registrations", nil, &out)
 }
