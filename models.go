@@ -148,6 +148,12 @@ const (
 	EventSIPRegistrationActive WebhookEventType = "sip.registration_active"
 	// EventSIPRegistrationExpired is the "sip.registration_expired" WebhookEventType value.
 	EventSIPRegistrationExpired WebhookEventType = "sip.registration_expired"
+	// EventSIPOutboundRegistrationActive is the "sip.outbound_registration_active" WebhookEventType value.
+	EventSIPOutboundRegistrationActive WebhookEventType = "sip.outbound_registration_active"
+	// EventSIPOutboundRegistrationFailed is the "sip.outbound_registration_failed" WebhookEventType value.
+	EventSIPOutboundRegistrationFailed WebhookEventType = "sip.outbound_registration_failed"
+	// EventSIPOutboundRegistrationExpired is the "sip.outbound_registration_expired" WebhookEventType value.
+	EventSIPOutboundRegistrationExpired WebhookEventType = "sip.outbound_registration_expired"
 )
 
 // OfferedCodec is referenced in the spec but not fully defined; use json.RawMessage to decode.

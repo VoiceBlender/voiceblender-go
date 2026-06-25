@@ -136,6 +136,21 @@ type ChannelInfo struct {
 	EndMs   int `json:"end_ms"`
 }
 
+// CreateTrunkRequest is a create trunk request.
+type CreateTrunkRequest struct {
+	Type        string               `json:"type"`
+	AppID       string               `json:"app_id,omitempty"`
+	SIPRegister SIPRegisterTrunkSpec `json:"sip_register,omitempty"`
+	IpIp        IPIPTrunkSpec        `json:"ip_ip,omitempty"`
+}
+
+// CreateTrunkResponse is a create trunk response.
+type CreateTrunkResponse struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+}
+
 // DTMFPayload is a d t m f payload.
 type DTMFPayload struct {
 	ID     string `json:"id"`
@@ -157,6 +172,16 @@ type EarlyMediaPayload struct {
 // IDPayload is a i d payload.
 type IDPayload struct {
 	ID string `json:"id"`
+}
+
+// IPIPTrunkSpec is a i p i p trunk spec.
+type IPIPTrunkSpec struct {
+	PeerURI string `json:"peer_uri,omitempty"`
+}
+
+// IPIPTrunkView is a i p i p trunk view.
+type IPIPTrunkView struct {
+	PeerURI string `json:"peer_uri,omitempty"`
 }
 
 // LegAMDStartPayload is a leg a m d start payload.
@@ -297,6 +322,31 @@ type RoutingRowUpdate struct {
 	Sources      []string `json:"sources"`
 }
 
+// SIPRegisterTrunkSpec is a s i p register trunk spec.
+type SIPRegisterTrunkSpec struct {
+	RegistrarURI   string `json:"registrar_uri"`
+	Aor            string `json:"aor"`
+	Username       string `json:"username,omitempty"`
+	Password       string `json:"password"`
+	ContactUser    string `json:"contact_user,omitempty"`
+	ExpiresSeconds int    `json:"expires_seconds,omitempty"`
+}
+
+// SIPRegisterTrunkView is a s i p register trunk view.
+type SIPRegisterTrunkView struct {
+	RegistrarURI            string `json:"registrar_uri"`
+	Aor                     string `json:"aor"`
+	Username                string `json:"username,omitempty"`
+	ContactURI              string `json:"contact_uri,omitempty"`
+	RequestedExpiresSeconds int    `json:"requested_expires_seconds"`
+	GrantedExpiresSeconds   int    `json:"granted_expires_seconds,omitempty"`
+	LastRegisteredAt        string `json:"last_registered_at,omitempty"`
+	NextRefreshAt           string `json:"next_refresh_at,omitempty"`
+	CallID                  string `json:"call_id,omitempty"`
+	Cseq                    int    `json:"cseq,omitempty"`
+	SourceAddress           string `json:"source_address,omitempty"`
+}
+
 // STTStartLegResult is a s t t start leg result.
 type STTStartLegResult struct {
 	Status string `json:"status"`
@@ -359,6 +409,23 @@ type TransferLegPayload struct {
 // TransferLegResult is a transfer leg result.
 type TransferLegResult struct {
 	Status string `json:"status"`
+}
+
+// TrunkView is a trunk view.
+type TrunkView struct {
+	ID          string               `json:"id"`
+	Type        string               `json:"type"`
+	AppID       string               `json:"app_id,omitempty"`
+	Status      string               `json:"status"`
+	LastError   string               `json:"last_error,omitempty"`
+	CreatedAt   string               `json:"created_at"`
+	SIPRegister SIPRegisterTrunkView `json:"sip_register,omitempty"`
+	IpIp        IPIPTrunkView        `json:"ip_ip,omitempty"`
+}
+
+// TrunksListResponse is a trunks list response.
+type TrunksListResponse struct {
+	Trunks []TrunkView `json:"trunks"`
 }
 
 // VSIStatusResponse is a v s i status response.
@@ -816,4 +883,28 @@ func (s *EventStream) RoomAgentMessage(ctx context.Context, payload AgentMessage
 func (s *EventStream) ListSIPRegistrations(ctx context.Context) (RegistrationsResponse, error) {
 	var out RegistrationsResponse
 	return out, s.call(ctx, "list_sip_registrations", nil, &out)
+}
+
+// CreateSIPTrunk create an outbound SIP trunk (REGISTER or static peering)
+func (s *EventStream) CreateSIPTrunk(ctx context.Context, payload CreateTrunkRequest) (CreateTrunkResponse, error) {
+	var out CreateTrunkResponse
+	return out, s.call(ctx, "create_sip_trunk", payload, &out)
+}
+
+// ListSIPTrunks list configured SIP trunks
+func (s *EventStream) ListSIPTrunks(ctx context.Context) (TrunksListResponse, error) {
+	var out TrunksListResponse
+	return out, s.call(ctx, "list_sip_trunks", nil, &out)
+}
+
+// GetSIPTrunk get a single SIP trunk
+func (s *EventStream) GetSIPTrunk(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "get_sip_trunk", payload, &out)
+}
+
+// DeleteSIPTrunk unregister and remove a SIP trunk
+func (s *EventStream) DeleteSIPTrunk(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "delete_sip_trunk", payload, &out)
 }
