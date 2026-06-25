@@ -32,6 +32,8 @@ type LegRingingEvent struct {
 	// X-* custom SIP headers, if present.
 	SIPHeaders    map[string]string `json:"sip_headers,omitempty"`
 	OfferedCodecs []OfferedCodec    `json:"offered_codecs,omitempty"`
+	TrunkID       string            `json:"trunk_id,omitempty"`
+	SourceAddress string            `json:"source_address,omitempty"`
 }
 
 // LegEarlyMediaEvent is fired when: outbound leg received 183 Session Progress with SDP; media pipeline active
@@ -596,6 +598,42 @@ type SIPRegistrationExpiredEvent struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// SIPOutboundRegistrationActiveEvent is fired when: outbound SIP trunk REGISTER accepted (initial or refresh)
+type SIPOutboundRegistrationActiveEvent struct {
+	Event
+	AppID                 string `json:"app_id,omitempty"`
+	TrunkID               string `json:"trunk_id,omitempty"`
+	Aor                   string `json:"aor,omitempty"`
+	Registrar             string `json:"registrar,omitempty"`
+	Contact               string `json:"contact,omitempty"`
+	GrantedExpiresSeconds int    `json:"granted_expires_seconds,omitempty"`
+	ExpiresAt             string `json:"expires_at,omitempty"`
+	CallID                string `json:"call_id,omitempty"`
+	SourceAddress         string `json:"source_address,omitempty"`
+}
+
+// SIPOutboundRegistrationFailedEvent is fired when: outbound SIP trunk REGISTER failed (transport error, non-2xx response, or digest auth rejected)
+type SIPOutboundRegistrationFailedEvent struct {
+	Event
+	AppID      string `json:"app_id,omitempty"`
+	TrunkID    string `json:"trunk_id,omitempty"`
+	Aor        string `json:"aor,omitempty"`
+	Registrar  string `json:"registrar,omitempty"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// SIPOutboundRegistrationExpiredEvent is fired when: outbound SIP trunk removed (DELETE, shutdown, or refresh failed past granted lifetime)
+type SIPOutboundRegistrationExpiredEvent struct {
+	Event
+	AppID     string `json:"app_id,omitempty"`
+	TrunkID   string `json:"trunk_id,omitempty"`
+	Aor       string `json:"aor,omitempty"`
+	Registrar string `json:"registrar,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 // ParseEvent unmarshals raw JSON into the appropriate typed event struct.
 func ParseEvent(data []byte) (interface{}, error) {
 	var base Event
@@ -887,6 +925,24 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventSIPRegistrationExpired:
 		var e SIPRegistrationExpiredEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPOutboundRegistrationActive:
+		var e SIPOutboundRegistrationActiveEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPOutboundRegistrationFailed:
+		var e SIPOutboundRegistrationFailedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPOutboundRegistrationExpired:
+		var e SIPOutboundRegistrationExpiredEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
