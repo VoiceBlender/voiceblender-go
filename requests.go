@@ -74,6 +74,17 @@ type EarlyMediaLegRequest struct {
 	Codec string `json:"codec,omitempty"`
 }
 
+// ChallengeRequest is a challenge request.
+type ChallengeRequest struct {
+	Realm      string   `json:"realm"`
+	Username   string   `json:"username,omitempty"`
+	Password   string   `json:"password,omitempty"`
+	Ha1        string   `json:"ha1,omitempty"`
+	Algorithm  string   `json:"algorithm,omitempty"`
+	Qop        []string `json:"qop,omitempty"`
+	MaxExpires int      `json:"max_expires,omitempty"`
+}
+
 // DeleteLegRequest is a delete leg request.
 type DeleteLegRequest struct {
 	// Disconnect reason. Only honored for unanswered SIP inbound legs (state `ringing` or `early_media`); on connected legs the body is ignored and the leg is hung up with the legacy `api_hangup` reason. The value flows through to `leg.disconnected`'s `cdr.reason` and selects the SIP final response: `busy`→486, `declined`/`rejected`→603, `unavailable`→480, `not_found`→404, `forbidden`→403, `server_error`→500.

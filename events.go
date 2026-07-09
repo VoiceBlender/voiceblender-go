@@ -34,6 +34,8 @@ type LegRingingEvent struct {
 	OfferedCodecs []OfferedCodec    `json:"offered_codecs,omitempty"`
 	TrunkID       string            `json:"trunk_id,omitempty"`
 	SourceAddress string            `json:"source_address,omitempty"`
+	Authenticated bool              `json:"authenticated,omitempty"`
+	AuthUsername  string            `json:"auth_username,omitempty"`
 }
 
 // LegEarlyMediaEvent is fired when: outbound leg received 183 Session Progress with SDP; media pipeline active
@@ -562,6 +564,20 @@ type AMDBeepEvent struct {
 	BeepMs int `json:"beep_ms,omitempty"`
 }
 
+// SIPRegistrationAttemptEvent is fired when: inbound REGISTER surfaced for a challenge/accept/reject decision (auto-accepts on consult timeout)
+type SIPRegistrationAttemptEvent struct {
+	Event
+	AppID            string `json:"app_id,omitempty"`
+	AttemptID        string `json:"attempt_id,omitempty"`
+	Aor              string `json:"aor,omitempty"`
+	Contact          string `json:"contact,omitempty"`
+	SourceAddress    string `json:"source_address,omitempty"`
+	Transport        string `json:"transport,omitempty"`
+	UserAgent        string `json:"user_agent,omitempty"`
+	CallID           string `json:"call_id,omitempty"`
+	HasAuthorization bool   `json:"has_authorization,omitempty"`
+}
+
 // SIPRegistrationActiveEvent is fired when: sIP AOR registration created or refreshed (one event per Contact)
 type SIPRegistrationActiveEvent struct {
 	Event
@@ -913,6 +929,12 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventAMDBeep:
 		var e AMDBeepEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPRegistrationAttempt:
+		var e SIPRegistrationAttemptEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

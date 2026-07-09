@@ -81,6 +81,16 @@ func (l *Leg) Ring(ctx context.Context) (*StatusResponse, error) {
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/ring", nil, &out)
 }
 
+// ChallengeLeg challenge a ringing inbound SIP leg with a 401 digest auth request
+func (l *Leg) ChallengeLeg(ctx context.Context, req ChallengeRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/challenge", body, &out)
+}
+
 // EarlyMedia enable early media on a ringing inbound SIP leg (asynchronous)
 func (l *Leg) EarlyMedia(ctx context.Context, req EarlyMediaLegRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)

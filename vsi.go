@@ -9,6 +9,12 @@ import (
 
 // ── VSI payload / result schemas ──────────────────────────────────────────
 
+// AcceptRegistrationPayload is a accept registration payload.
+type AcceptRegistrationPayload struct {
+	ID         string `json:"id"`
+	MaxExpires int    `json:"max_expires,omitempty"`
+}
+
 // AddLegPayload is a add leg payload.
 type AddLegPayload struct {
 	RoomID     string `json:"room_id"`
@@ -129,6 +135,30 @@ type BridgeView struct {
 	SampleRate int    `json:"sample_rate"`
 }
 
+// ChallengeLegPayload is a challenge leg payload.
+type ChallengeLegPayload struct {
+	ID         string   `json:"id"`
+	Realm      string   `json:"realm"`
+	Username   string   `json:"username,omitempty"`
+	Password   string   `json:"password,omitempty"`
+	Ha1        string   `json:"ha1,omitempty"`
+	Algorithm  string   `json:"algorithm,omitempty"`
+	Qop        []string `json:"qop,omitempty"`
+	MaxExpires int      `json:"max_expires,omitempty"`
+}
+
+// ChallengeRegistrationPayload is a challenge registration payload.
+type ChallengeRegistrationPayload struct {
+	ID         string   `json:"id"`
+	Realm      string   `json:"realm"`
+	Username   string   `json:"username,omitempty"`
+	Password   string   `json:"password,omitempty"`
+	Ha1        string   `json:"ha1,omitempty"`
+	Algorithm  string   `json:"algorithm,omitempty"`
+	Qop        []string `json:"qop,omitempty"`
+	MaxExpires int      `json:"max_expires,omitempty"`
+}
+
 // ChannelInfo is a channel info.
 type ChannelInfo struct {
 	Channel int `json:"channel"`
@@ -161,6 +191,12 @@ type DTMFPayload struct {
 type DeleteLegPayload struct {
 	ID     string `json:"id"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// DeleteRegistrationPayload is a delete registration payload.
+type DeleteRegistrationPayload struct {
+	Aor     string `json:"aor"`
+	Contact string `json:"contact,omitempty"`
 }
 
 // EarlyMediaPayload is a early media payload.
@@ -291,6 +327,13 @@ type RegistrationView struct {
 // RegistrationsResponse is a registrations response.
 type RegistrationsResponse struct {
 	Bindings []RegistrationView `json:"bindings"`
+}
+
+// RejectRegistrationPayload is a reject registration payload.
+type RejectRegistrationPayload struct {
+	ID     string `json:"id"`
+	Code   int    `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // RoomLegPayload is a room leg payload.
@@ -885,6 +928,36 @@ func (s *EventStream) ListSIPRegistrations(ctx context.Context) (RegistrationsRe
 	return out, s.call(ctx, "list_sip_registrations", nil, &out)
 }
 
+// DeleteSIPRegistration force-unbind an AOR (or a single contact under it)
+func (s *EventStream) DeleteSIPRegistration(ctx context.Context, payload DeleteRegistrationPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "delete_sip_registration", payload, &out)
+}
+
+// ChallengeLeg send a 401 digest challenge on a ringing inbound SIP leg (INVITE)
+func (s *EventStream) ChallengeLeg(ctx context.Context, payload ChallengeLegPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "challenge_leg", payload, &out)
+}
+
+// ChallengeRegistration send a 401 digest challenge for a parked inbound REGISTER attempt
+func (s *EventStream) ChallengeRegistration(ctx context.Context, payload ChallengeRegistrationPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "challenge_registration", payload, &out)
+}
+
+// AcceptRegistration accept a parked inbound REGISTER attempt (bind and reply 200 OK)
+func (s *EventStream) AcceptRegistration(ctx context.Context, payload AcceptRegistrationPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "accept_registration", payload, &out)
+}
+
+// RejectRegistration reject a parked inbound REGISTER attempt (reply 403 by default)
+func (s *EventStream) RejectRegistration(ctx context.Context, payload RejectRegistrationPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "reject_registration", payload, &out)
+}
+
 // CreateSIPTrunk create an outbound SIP trunk (REGISTER or static peering)
 func (s *EventStream) CreateSIPTrunk(ctx context.Context, payload CreateTrunkRequest) (CreateTrunkResponse, error) {
 	var out CreateTrunkResponse
@@ -898,8 +971,8 @@ func (s *EventStream) ListSIPTrunks(ctx context.Context) (TrunksListResponse, er
 }
 
 // GetSIPTrunk get a single SIP trunk
-func (s *EventStream) GetSIPTrunk(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
-	var out VSIStatusResponse
+func (s *EventStream) GetSIPTrunk(ctx context.Context, payload IDPayload) (TrunkView, error) {
+	var out TrunkView
 	return out, s.call(ctx, "get_sip_trunk", payload, &out)
 }
 
