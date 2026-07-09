@@ -588,6 +588,7 @@ func genRequests(schemas map[string]*Schema) []byte {
 		"CreateLegRequest",
 		"AnswerLegRequest",
 		"EarlyMediaLegRequest",
+		"ChallengeRequest",
 		"DeleteLegRequest",
 		"TransferRequest",
 		"DTMFRequest",

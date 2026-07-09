@@ -144,6 +144,8 @@ const (
 	EventAMDResult WebhookEventType = "amd.result"
 	// EventAMDBeep is the "amd.beep" WebhookEventType value.
 	EventAMDBeep WebhookEventType = "amd.beep"
+	// EventSIPRegistrationAttempt is the "sip.registration_attempt" WebhookEventType value.
+	EventSIPRegistrationAttempt WebhookEventType = "sip.registration_attempt"
 	// EventSIPRegistrationActive is the "sip.registration_active" WebhookEventType value.
 	EventSIPRegistrationActive WebhookEventType = "sip.registration_active"
 	// EventSIPRegistrationExpired is the "sip.registration_expired" WebhookEventType value.

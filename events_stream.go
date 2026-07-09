@@ -1,6 +1,7 @@
 package voiceblender
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,17 @@ type EventStream struct {
 
 	// Monotonic request_id counter.
 	nextID atomic.Uint64
+
+	// logFrame, if set, is called with every raw VSI frame sent/received.
+	logFrame func(dir string, data []byte)
+}
+
+// logf reports a raw frame to the configured frame logger, if any. dir is
+// "send" or "recv".
+func (s *EventStream) logf(dir string, data []byte) {
+	if s.logFrame != nil {
+		s.logFrame(dir, data)
+	}
 }
 
 // vsiResp carries one demuxed command response from the read loop to the
@@ -57,11 +69,20 @@ type EventStreamOption func(*eventStreamConfig)
 
 type eventStreamConfig struct {
 	httpClient *http.Client
+	logFrame   func(dir string, data []byte)
 }
 
 // WithEventHTTPClient overrides the HTTP client used for the WebSocket dial.
 func WithEventHTTPClient(hc *http.Client) EventStreamOption {
 	return func(cfg *eventStreamConfig) { cfg.httpClient = hc }
+}
+
+// WithFrameLogger installs a callback invoked for every raw VSI frame sent to
+// or received from the server (dir is "send" or "recv"). Intended for debug
+// tracing of the wire protocol. The callback runs on the read/write path, so it
+// must be cheap and non-blocking.
+func WithFrameLogger(fn func(dir string, data []byte)) EventStreamOption {
+	return func(cfg *eventStreamConfig) { cfg.logFrame = fn }
 }
 
 // Events opens a WebSocket connection to the VSI endpoint and returns an
@@ -101,6 +122,7 @@ func (c *Client) Events(ctx context.Context, opts ...EventStreamOption) (*EventS
 	return &EventStream{
 		conn:     conn,
 		inflight: make(map[string]chan vsiResp),
+		logFrame: cfg.logFrame,
 	}, nil
 }
 
@@ -115,6 +137,12 @@ func (s *EventStream) Next(ctx context.Context) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.logf("recv", data)
+		if len(bytes.TrimSpace(data)) == 0 {
+			// Ignore zero-length / whitespace-only keepalive frames; a stray
+			// empty frame must never kill the stream.
+			continue
+		}
 
 		var env vsiInFrame
 		if err := json.Unmarshal(data, &env); err != nil {
@@ -122,8 +150,10 @@ func (s *EventStream) Next(ctx context.Context) (interface{}, error) {
 		}
 
 		if env.Type == "ping" {
+			pong := []byte(`{"type":"pong"}`)
+			s.logf("send", pong)
 			s.writeMu.Lock()
-			_ = s.conn.Write(ctx, websocket.MessageText, []byte(`{"type":"pong"}`))
+			_ = s.conn.Write(ctx, websocket.MessageText, pong)
 			s.writeMu.Unlock()
 			continue
 		}
@@ -192,8 +222,10 @@ func (s *EventStream) Close() error {
 		return nil
 	}
 	s.done = true
+	stop := []byte(`{"type":"stop"}`)
+	s.logf("send", stop)
 	s.writeMu.Lock()
-	_ = s.conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"stop"}`))
+	_ = s.conn.Write(context.Background(), websocket.MessageText, stop)
 	s.writeMu.Unlock()
 	return s.conn.Close(websocket.StatusNormalClosure, "client closed")
 }
@@ -252,6 +284,7 @@ func (s *EventStream) call(ctx context.Context, cmdType string, payload, result 
 		return fmt.Errorf("voiceblender: vsi marshal %s: %w", cmdType, err)
 	}
 
+	s.logf("send", data)
 	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	s.writeMu.Lock()
 	err = s.conn.Write(writeCtx, websocket.MessageText, data)
