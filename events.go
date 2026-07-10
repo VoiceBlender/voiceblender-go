@@ -347,7 +347,7 @@ type LegTransferInitiatedEvent struct {
 	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
 }
 
-// LegTransferRequestedEvent is fired when: we received a SIP REFER from the peer
+// LegTransferRequestedEvent is fired when: we received a SIP REFER from the peer; decide via accept_transfer/decline_transfer (unless SIP_REFER_AUTO_DIAL=true)
 type LegTransferRequestedEvent struct {
 	Event
 	// Leg identifier.
@@ -359,7 +359,7 @@ type LegTransferRequestedEvent struct {
 	Target string `json:"target,omitempty"`
 	// Call-ID present in the Refer-To Replaces parameter (attended only).
 	ReplacesCallID string `json:"replaces_call_id,omitempty"`
-	// True when the REFER was declined (e.g. SIP_REFER_AUTO_DIAL=false).
+	// Vestigial (always false); retained for wire compatibility. The outcome now flows via leg.transfer_completed / leg.transfer_failed after the app decides.
 	Declined bool `json:"declined,omitempty"`
 }
 

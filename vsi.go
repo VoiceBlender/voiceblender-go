@@ -15,6 +15,11 @@ type AcceptRegistrationPayload struct {
 	MaxExpires int    `json:"max_expires,omitempty"`
 }
 
+// AcceptTransferPayload is a accept transfer payload.
+type AcceptTransferPayload struct {
+	ID string `json:"id"`
+}
+
 // AddLegPayload is a add leg payload.
 type AddLegPayload struct {
 	RoomID     string `json:"room_id"`
@@ -166,6 +171,14 @@ type ChannelInfo struct {
 	EndMs   int `json:"end_ms"`
 }
 
+// CompleteTransferPayload is a complete transfer payload.
+type CompleteTransferPayload struct {
+	ID         string `json:"id"`
+	Success    bool   `json:"success"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 // CreateTrunkRequest is a create trunk request.
 type CreateTrunkRequest struct {
 	Type        string               `json:"type"`
@@ -185,6 +198,13 @@ type CreateTrunkResponse struct {
 type DTMFPayload struct {
 	ID     string `json:"id"`
 	Digits string `json:"digits"`
+}
+
+// DeclineTransferPayload is a decline transfer payload.
+type DeclineTransferPayload struct {
+	ID     string `json:"id"`
+	Code   int    `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // DeleteLegPayload is a delete leg payload.
@@ -263,6 +283,13 @@ type PlaybackVolumePayload struct {
 	ID         string `json:"id"`
 	PlaybackID string `json:"playback_id"`
 	Volume     int    `json:"volume"`
+}
+
+// ProgressTransferPayload is a progress transfer payload.
+type ProgressTransferPayload struct {
+	ID         string `json:"id"`
+	StatusCode int    `json:"status_code"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 // RTTPayload is a r t t payload.
@@ -848,6 +875,30 @@ func (s *EventStream) RoomTTS(ctx context.Context, payload TTSStartPayload) (TTS
 func (s *EventStream) LegTransfer(ctx context.Context, payload TransferLegPayload) (TransferLegResult, error) {
 	var out TransferLegResult
 	return out, s.call(ctx, "leg_transfer", payload, &out)
+}
+
+// AcceptTransfer accept a parked inbound REFER (send 202 + NOTIFY 100 Trying)
+func (s *EventStream) AcceptTransfer(ctx context.Context, payload AcceptTransferPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "accept_transfer", payload, &out)
+}
+
+// ProgressTransfer send an interim sipfrag NOTIFY (e.g. 180 Ringing) on an accepted inbound transfer
+func (s *EventStream) ProgressTransfer(ctx context.Context, payload ProgressTransferPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "progress_transfer", payload, &out)
+}
+
+// CompleteTransfer terminate an accepted inbound transfer with a final sipfrag NOTIFY (200 OK or failure)
+func (s *EventStream) CompleteTransfer(ctx context.Context, payload CompleteTransferPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "complete_transfer", payload, &out)
+}
+
+// DeclineTransfer reject a parked (not-yet-accepted) inbound REFER (603 by default)
+func (s *EventStream) DeclineTransfer(ctx context.Context, payload DeclineTransferPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "decline_transfer", payload, &out)
 }
 
 // LegAgentElevenlabs attach an ElevenLabs Conversational AI agent to a leg

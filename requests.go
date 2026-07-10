@@ -99,6 +99,25 @@ type TransferRequest struct {
 	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
 }
 
+// TransferProgressRequest is a transfer progress request.
+type TransferProgressRequest struct {
+	StatusCode int    `json:"status_code"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// TransferCompleteRequest is a transfer complete request.
+type TransferCompleteRequest struct {
+	Success    bool   `json:"success"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// TransferDeclineRequest is a transfer decline request.
+type TransferDeclineRequest struct {
+	Code   int    `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // DTMFRequest is a d t m f request.
 type DTMFRequest struct {
 	// DTMF digits to send (0-9, *, #).

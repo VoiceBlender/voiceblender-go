@@ -135,6 +135,42 @@ func (l *Leg) Transfer(ctx context.Context, req TransferRequest) (*StatusRespons
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/transfer", body, &out)
 }
 
+// AcceptTransfer accept a parked inbound REFER
+func (l *Leg) AcceptTransfer(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/transfer/accept", nil, &out)
+}
+
+// TransferProgress report interim transfer progress
+func (l *Leg) TransferProgress(ctx context.Context, req TransferProgressRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/transfer/progress", body, &out)
+}
+
+// CompleteTransfer complete an accepted inbound transfer
+func (l *Leg) CompleteTransfer(ctx context.Context, req TransferCompleteRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/transfer/complete", body, &out)
+}
+
+// DeclineTransfer decline a parked inbound REFER
+func (l *Leg) DeclineTransfer(ctx context.Context, req TransferDeclineRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/transfer/decline", body, &out)
+}
+
 // SendDTMF send DTMF digits on a leg
 func (l *Leg) SendDTMF(ctx context.Context, req DTMFRequest) (*StatusResponse, error) {
 	body, err := encodeJSON(req)
