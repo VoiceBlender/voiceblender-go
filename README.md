@@ -154,17 +154,39 @@ for {
 
 ### Filtering events by app ID
 
-The VSI stream delivers all events for the instance. Use the `AppID` field on
-legs and rooms to filter events relevant to your application:
+By default the VSI stream delivers every event for the instance. Tag your legs
+and rooms with an `AppID`, then pass `WithAppFilter` to have the *server* drop
+everything else — the events never cross the wire:
 
 ```go
+// Tag the legs your app owns. Every leg type accepts AppID, including WebRTC.
 leg, _ := c.CreateLeg(ctx, voiceblender.CreateLegRequest{
-    Type:  voiceblender.LegTypeSIPOutbound,
-    URI:   "sip:alice@example.com",
+    Type:  "sip",
+    To:    "sip:alice@example.com",
     AppID: "my-app",
 })
 
-// In the event loop:
+answer, _ := c.WebRTCOffer(ctx, voiceblender.WebRTCOfferRequest{
+    SDP:   offerSDP,
+    AppID: "my-app",
+})
+
+// Subscribe to just this app's events.
+stream, err := c.Events(ctx, voiceblender.WithAppFilter("^my-app$"))
+```
+
+The filter is an RE2 regular expression matched against each event's `app_id`,
+so `"^(my-app|my-other-app)$"` subscribes to several apps at once. It is
+unanchored unless you anchor it: `"my-app"` also matches `"my-app-staging"`.
+
+An untagged leg emits events with an empty `app_id`, and a non-empty filter
+drops them — if you filter, tag every leg your app creates or it will silently
+miss its own events.
+
+For finer-grained logic than a regex can express, the `AppID` field is also
+present on the events themselves, so you can still filter client-side:
+
+```go
 switch e := ev.(type) {
 case *voiceblender.LegConnectedEvent:
     if e.AppID != "my-app" {

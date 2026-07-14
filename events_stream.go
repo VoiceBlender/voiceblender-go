@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -70,11 +71,24 @@ type EventStreamOption func(*eventStreamConfig)
 type eventStreamConfig struct {
 	httpClient *http.Client
 	logFrame   func(dir string, data []byte)
+	appFilter  string
 }
 
 // WithEventHTTPClient overrides the HTTP client used for the WebSocket dial.
 func WithEventHTTPClient(hc *http.Client) EventStreamOption {
 	return func(cfg *eventStreamConfig) { cfg.httpClient = hc }
+}
+
+// WithAppFilter restricts the stream to events whose app_id matches the given
+// RE2 regular expression, e.g. "^ptt$" for one app or "^(ptt|dispatch)$" for
+// several. The pattern is unanchored unless you anchor it, so "ptt" also
+// matches "ptt-staging".
+//
+// Legs are tagged by passing app_id when they are created; events from
+// untagged legs have an empty app_id and are dropped by any non-empty filter.
+// An invalid pattern fails the dial with a 400 from the server.
+func WithAppFilter(pattern string) EventStreamOption {
+	return func(cfg *eventStreamConfig) { cfg.appFilter = pattern }
 }
 
 // WithFrameLogger installs a callback invoked for every raw VSI frame sent to
@@ -97,6 +111,9 @@ func (c *Client) Events(ctx context.Context, opts ...EventStreamOption) (*EventS
 	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	wsURL += "/vsi"
+	if cfg.appFilter != "" {
+		wsURL += "?" + url.Values{"app_id": {cfg.appFilter}}.Encode()
+	}
 
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		HTTPClient: cfg.httpClient,
