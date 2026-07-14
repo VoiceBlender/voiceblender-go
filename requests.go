@@ -258,6 +258,8 @@ type RecordingRequest struct {
 type WebRTCOfferRequest struct {
 	// SDP offer from the browser.
 	SDP string `json:"sdp"`
+	// Application identifier. Carried through to all events emitted for this leg, and matched against the VSI `app_id` filter.
+	AppID string `json:"app_id,omitempty"`
 }
 
 // CreateRoomRequest is a create room request.
