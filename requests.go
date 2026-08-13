@@ -4,10 +4,71 @@ package voiceblender
 
 import "encoding/json"
 
-// SIPAuth holds SIP digest authentication credentials.
-type SIPAuth struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+// AddLegRequest is a add leg request.
+type AddLegRequest struct {
+	// ID of the leg to add.
+	LegID string `json:"leg_id"`
+	// If set, apply this mute state to the leg atomically before it joins the mixer (no race where un-muted audio enters the mix). Omit to leave current state untouched (useful when moving between rooms).
+	Mute *bool `json:"mute,omitempty"`
+	// If set, apply this deaf state to the leg atomically before it joins the mixer. Omit to leave current state untouched.
+	Deaf *bool `json:"deaf,omitempty"`
+	// If set, control whether this leg receives DTMF digits broadcast from other legs in the same room. Omit to leave current state untouched (default for new legs is true).
+	AcceptDTMF *bool `json:"accept_dtmf,omitempty"`
+	// If set, apply this routing role to the leg atomically before it joins the mixer. The room's routing matrix (see PUT /v1/rooms/{id}/routing) decides which other legs this leg hears and is heard by based on roles. Pass "" to clear the role (full mesh). Omit to leave the current role untouched.
+	Role string `json:"role,omitempty"`
+	// Additional audio streams of the leg to mix into this room, each with its own routing role. Omit to add only the leg's primary stream. A stream already mixed elsewhere is moved here.
+	Streams []AddRoomStream `json:"streams,omitempty"`
+}
+
+// AddLegStreamRequest is a add leg stream request.
+type AddLegStreamRequest struct {
+	// Media direction for the new stream, from this server's point of view. Defaults to sendrecv.
+	Direction string `json:"direction,omitempty"`
+	// BCP 47 language tag advertised as a=lang (RFC 8866), e.g. "es-ES" for a Spanish translation feed.
+	Lang string `json:"lang,omitempty"`
+	// Value advertised as a=content (RFC 4796). Use "main" for original audio and "alt" for an alternative feed such as a translation.
+	Content string `json:"content,omitempty"`
+	// Value advertised as a=label (RFC 4574), for correlating the stream with external metadata.
+	Label string `json:"label,omitempty"`
+	// If set, attach the new stream to this room once it is negotiated.
+	RoomID string `json:"room_id,omitempty"`
+	// Routing role to apply when room_id is set.
+	Role string `json:"role,omitempty"`
+}
+
+// AgentMessageRequest is a agent message request.
+type AgentMessageRequest struct {
+	// Context or instruction to inject into the running agent session.
+	Message string `json:"message"`
+}
+
+// AnswerLegRequest is a answer leg request.
+type AnswerLegRequest struct {
+	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
+	SpeechDetection *bool `json:"speech_detection,omitempty"`
+	// Explicit codec for the answer SDP. Must appear in the remote offer's offered_codecs list. Omit to use the server's default preference order.
+	Codec string `json:"codec,omitempty"`
+	// Rooms for the caller's additional audio streams, applied once the answer is negotiated. Positional: entry i addresses the i-th accepted stream beyond the primary, in m-line order — the caller's offer decides how many exist, so an entry with no matching stream is ignored. Use POST /v1/legs/{id}/streams/{streamId}/room to re-route a stream later.
+	Streams []AnswerLegStream `json:"streams,omitempty"`
+}
+
+// AttachStreamRoomRequest is a attach stream room request.
+type AttachStreamRoomRequest struct {
+	// Room to mix this stream into. May differ from the leg's own room.
+	RoomID string `json:"room_id"`
+	// Routing role for the stream inside that room. The room's routing matrix decides who hears it.
+	Role string `json:"role,omitempty"`
+}
+
+// ChallengeRequest is a challenge request.
+type ChallengeRequest struct {
+	Realm      string   `json:"realm"`
+	Username   string   `json:"username,omitempty"`
+	Password   string   `json:"password,omitempty"`
+	Ha1        string   `json:"ha1,omitempty"`
+	Algorithm  string   `json:"algorithm,omitempty"`
+	Qop        []string `json:"qop,omitempty"`
+	MaxExpires int      `json:"max_expires,omitempty"`
 }
 
 // CreateLegRequest is a create leg request.
@@ -18,7 +79,7 @@ type CreateLegRequest struct {
 	To string `json:"to,omitempty"`
 	// Deprecated alias for `to` (sip legs only). Prefer `to`.
 	URI string `json:"uri,omitempty"`
-	// Caller ID — sets the user part of the SIP From header (e.g. "+15551234567", "alice").
+	// Caller ID. A bare user-part (e.g. "+15551234567", "alice") sets the user of the SIP From header. A full SIP URI (e.g. "sip:alice@pbx.example.com") sets both the user and the host; otherwise the host comes from the matched trunk's AOR realm, falling back to SIP_DOMAIN.
 	From string `json:"from,omitempty"`
 	// SIP Privacy header value (e.g. "id", "none").
 	Privacy string `json:"privacy,omitempty"`
@@ -48,6 +109,8 @@ type CreateLegRequest struct {
 	SpeechDetection *bool `json:"speech_detection,omitempty"`
 	// For sip legs: offer Real-Time Text (ITU-T T.140 over RTP per RFC 4103) alongside audio. For websocket legs: enable the bidirectional text-message channel. Default: false.
 	RTT bool `json:"rtt,omitempty"`
+	// SIP outbound only. Extra m=audio sections to offer alongside the call's primary bidirectional audio, so a multi-stream call is established by the first INVITE instead of a follow-up re-INVITE. Each entry binds its own RTP port and may be mixed into its own room. To add a stream to a call that is already up, use POST /v1/legs/{id}/streams instead.
+	Streams []CreateLegStream `json:"streams,omitempty"`
 	// WebSocket target URL (ws:// or wss://) for outbound websocket legs. Required when type=websocket.
 	URL string `json:"url,omitempty"`
 	// PCM sample rate for websocket legs. The room's mixer automatically resamples between this and the room rate.
@@ -57,115 +120,49 @@ type CreateLegRequest struct {
 	// On-the-wire PCM sample encoding for websocket legs. v1 only supports `s16le`.
 	SampleFormat string `json:"sample_format,omitempty"`
 	// LiveKit room join parameters (only used when type=livekit_room).
-	Livekit interface{} `json:"livekit,omitempty"`
+	Livekit *LiveKitParams `json:"livekit,omitempty"`
 }
 
-// AnswerLegRequest is a answer leg request.
-type AnswerLegRequest struct {
-	// If true, emit speaking.started and speaking.stopped events for this leg. If false, suppress them. Omit to use the server default (SPEECH_DETECTION_ENABLED env var, default false).
-	SpeechDetection *bool `json:"speech_detection,omitempty"`
-	// Explicit codec for the answer SDP. Must appear in the remote offer's offered_codecs list. Omit to use the server's default preference order.
-	Codec string `json:"codec,omitempty"`
+// CreateRoomBridgeRequest is a create room bridge request.
+type CreateRoomBridgeRequest struct {
+	// Custom bridge ID (auto-generated UUID if omitted).
+	ID string `json:"id,omitempty"`
+	// The other room to join. Must use the same sample rate as the room in the path.
+	RoomID string `json:"room_id"`
+	// Audio flow relative to the room in the path: bidirectional (both hear each other), send (path room → other only), receive (other → path room only), none (allocated but silent). Default: bidirectional.
+	Direction string `json:"direction,omitempty"`
 }
 
-// EarlyMediaLegRequest is a early media leg request.
-type EarlyMediaLegRequest struct {
-	// Explicit codec for the 183 Session Progress SDP. Must appear in the remote offer's offered_codecs list. Omit to use the server's default preference order.
-	Codec string `json:"codec,omitempty"`
+// CreateRoomRequest is a create room request.
+type CreateRoomRequest struct {
+	// Custom room ID (auto-generated UUID if omitted).
+	ID string `json:"id"`
+	// Route all events for this room exclusively to this URL instead of global webhooks.
+	WebhookURL string `json:"webhook_url,omitempty"`
+	// HMAC-SHA256 signing secret for the per-room webhook.
+	WebhookSecret string `json:"webhook_secret,omitempty"`
+	// Application identifier. Carried through to all events for this room. Use to filter the WebSocket event stream by app.
+	AppID string `json:"app_id,omitempty"`
+	// Mixer sample rate in Hz. Allowed values: 8000, 16000, 48000. Default: 16000.
+	SampleRate int `json:"sample_rate,omitempty"`
 }
 
-// ChallengeRequest is a challenge request.
-type ChallengeRequest struct {
-	Realm      string   `json:"realm"`
-	Username   string   `json:"username,omitempty"`
-	Password   string   `json:"password,omitempty"`
-	Ha1        string   `json:"ha1,omitempty"`
-	Algorithm  string   `json:"algorithm,omitempty"`
-	Qop        []string `json:"qop,omitempty"`
-	MaxExpires int      `json:"max_expires,omitempty"`
+// CreateTrunkRequest is a create trunk request.
+type CreateTrunkRequest struct {
+	// Trunk type discriminator. Only `sip_register` is implemented today; `ip_ip` is reserved and returns 501.
+	Type string `json:"type"`
+	// Application identifier carried through to every event emitted by this trunk.
+	AppID string `json:"app_id,omitempty"`
+	// Required when type == "sip_register". Configures the outbound REGISTER (registrar URI, AOR, digest credentials, expiry).
+	SIPRegister *SIPRegisterTrunkSpec `json:"sip_register,omitempty"`
+	// Reserved for static-IP peering (no REGISTER). Not yet implemented; supplying this returns 501.
+	IpIp *IPIPTrunkSpec `json:"ip_ip,omitempty"`
 }
 
-// DeleteLegRequest is a delete leg request.
-type DeleteLegRequest struct {
-	// Disconnect reason. Only honored for unanswered SIP inbound legs (state `ringing` or `early_media`); on connected legs the body is ignored and the leg is hung up with the legacy `api_hangup` reason. The value flows through to `leg.disconnected`'s `cdr.reason` and selects the SIP final response: `busy`→486, `declined`/`rejected`→603, `unavailable`→480, `not_found`→404, `forbidden`→403, `server_error`→500.
-	Reason string `json:"reason,omitempty"`
-}
-
-// TransferRequest is a transfer request.
-type TransferRequest struct {
-	// SIP URI to transfer the call to (e.g. "sip:bob@example.com").
-	Target string `json:"target"`
-	// ID of an existing connected SIP leg whose dialog should be replaced (attended transfer). Omit for blind transfer.
-	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
-}
-
-// TransferProgressRequest is a transfer progress request.
-type TransferProgressRequest struct {
-	StatusCode int    `json:"status_code"`
-	Reason     string `json:"reason,omitempty"`
-}
-
-// TransferCompleteRequest is a transfer complete request.
-type TransferCompleteRequest struct {
-	Success    bool   `json:"success"`
-	StatusCode int    `json:"status_code,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-}
-
-// TransferDeclineRequest is a transfer decline request.
-type TransferDeclineRequest struct {
-	Code   int    `json:"code,omitempty"`
-	Reason string `json:"reason,omitempty"`
-}
-
-// DTMFRequest is a d t m f request.
+// DTMFRequest is a DTMF request.
 type DTMFRequest struct {
 	// DTMF digits to send (0-9, *, #).
 	Digits string `json:"digits"`
-}
-
-// RTTRequest is a r t t request.
-type RTTRequest struct {
-	// UTF-8 text to send. May be one or more characters and may include T.140 control codes (e.g. backspace U+0008, CR/LF).
-	Text string `json:"text"`
-}
-
-// VolumeRequest is a volume request.
-type VolumeRequest struct {
-	// Volume adjustment (-8 to 8, ~3dB per step, 0 = unchanged).
-	Volume int `json:"volume"`
-}
-
-// TTSRequest is a t t s request.
-type TTSRequest struct {
-	// Text to synthesize.
-	Text string `json:"text"`
-	// Provider-specific voice identifier. ElevenLabs: voice name or ID. AWS Polly: voice ID (e.g. Joanna, Matthew). Google Cloud: voice name — either full format (e.g. en-US-Neural2-F) or short name for Gemini models (e.g. Achernar, Kore). Deepgram: model name (e.g. aura-2-asteria-en).
-	Voice string `json:"voice"`
-	// Provider-specific model/engine. ElevenLabs: model ID. AWS Polly: engine (standard, neural, long-form, generative; default neural). Google Cloud: model name (e.g. gemini-2.5-pro-tts, chirp3-hd).
-	ModelID string `json:"model_id"`
-	// Language code (e.g. "en-US", "pl-pl"). Required for Google Gemini TTS voices that use short names (e.g. Achernar). Auto-extracted from full voice names like en-US-Neural2-F.
-	Language string `json:"language,omitempty"`
-	// Style/tone instruction for promptable voice models (Google Gemini TTS only). E.g. "Read aloud in a warm, welcoming tone.".
-	Prompt string `json:"prompt,omitempty"`
-	// Volume adjustment in dB (-8 to 8).
-	Volume int `json:"volume"`
-	// TTS provider: "elevenlabs" (default), "aws", "google", or "deepgram".
-	Provider string `json:"provider,omitempty"`
-	// ElevenLabs: API key override (falls back to ELEVENLABS_API_KEY env var). AWS: optional ACCESS_KEY:SECRET_KEY override (falls back to default AWS credential chain). Google Cloud: optional API key override (falls back to Application Default Credentials). Deepgram: API key override (falls back to DEEPGRAM_API_KEY env var).
-	APIKey string `json:"api_key,omitempty"`
-}
-
-// STTRequest is a s t t request.
-type STTRequest struct {
-	// Language code (e.g. "en", "es").
-	Language string `json:"language"`
-	// Emit partial (non-final) transcripts.
-	Partial bool `json:"partial"`
-	// STT provider: "elevenlabs" (default) or "deepgram".
-	Provider string `json:"provider,omitempty"`
-	// API key override (falls back to ELEVENLABS_API_KEY or DEEPGRAM_API_KEY env var depending on provider).
-	APIKey string `json:"api_key,omitempty"`
 }
 
 // DeepgramAgentRequest is a deepgram agent request.
@@ -178,6 +175,18 @@ type DeepgramAgentRequest struct {
 	Language string `json:"language,omitempty"`
 	// API key override (falls back to DEEPGRAM_API_KEY env var).
 	APIKey string `json:"api_key,omitempty"`
+}
+
+// DeleteLegRequest is a delete leg request.
+type DeleteLegRequest struct {
+	// Disconnect reason. Only honored for unanswered SIP inbound legs (state `ringing` or `early_media`); on connected legs the body is ignored and the leg is hung up with the legacy `api_hangup` reason. The value flows through to `leg.disconnected`'s `cdr.reason` and selects the SIP final response: `busy`→486, `declined`/`rejected`→603, `unavailable`→480, `not_found`→404, `forbidden`→403, `server_error`→500.
+	Reason string `json:"reason,omitempty"`
+}
+
+// EarlyMediaLegRequest is a early media leg request.
+type EarlyMediaLegRequest struct {
+	// Explicit codec for the 183 Session Progress SDP. Must appear in the remote offer's offered_codecs list. Omit to use the server's default preference order.
+	Codec string `json:"codec,omitempty"`
 }
 
 // ElevenLabsAgentRequest is a eleven labs agent request.
@@ -200,43 +209,15 @@ type PipecatAgentRequest struct {
 	WebsocketURL string `json:"websocket_url"`
 }
 
-// VAPIAgentRequest is a v a p i agent request.
-type VAPIAgentRequest struct {
-	// VAPI assistant ID.
-	AssistantID string `json:"assistant_id"`
-	// Override the agent's first message.
-	FirstMessage string `json:"first_message,omitempty"`
-	// Key-value pairs passed as VAPI variable values (assistantOverrides.variableValues).
-	VariableValues map[string]string `json:"variable_values,omitempty"`
-	// API key override (falls back to VAPI_API_KEY env var).
-	APIKey string `json:"api_key,omitempty"`
-}
-
-// AgentMessageRequest is a agent message request.
-type AgentMessageRequest struct {
-	// Context or instruction to inject into the running agent session.
-	Message string `json:"message"`
-}
-
-// AMDParams is a a m d params.
-type AMDParams struct {
-	// Max milliseconds of silence before declaring no_speech.
-	InitialSilenceTimeout int `json:"initial_silence_timeout,omitempty"`
-	// Speech duration threshold (ms) above which answerer is classified as machine.
-	GreetingDuration int `json:"greeting_duration,omitempty"`
-	// Silence duration (ms) after initial speech to declare human.
-	AfterGreetingSilence int `json:"after_greeting_silence,omitempty"`
-	// Max analysis window in milliseconds.
-	TotalAnalysisTime int `json:"total_analysis_time,omitempty"`
-	// Minimum speech burst duration (ms) to count as a word.
-	MinimumWordLength int `json:"minimum_word_length,omitempty"`
-	// Max time (ms) to wait for the voicemail beep after machine detection. 0 or omitted = disabled.
-	BeepTimeout int `json:"beep_timeout,omitempty"`
+// RTTRequest is a RTT request.
+type RTTRequest struct {
+	// UTF-8 text to send. May be one or more characters and may include T.140 control codes (e.g. backspace U+0008, CR/LF).
+	Text string `json:"text"`
 }
 
 // RecordingRequest is a recording request.
 type RecordingRequest struct {
-	// "file" (default) — local disk, "s3" — upload to S3 after recording stops.
+	// "file" (default) — local disk, "s3" — upload to S3 after recording stops, "gcs" — upload to Google Cloud Storage via the native GCS API (Application Default Credentials / Workload Identity).
 	Storage string `json:"storage"`
 	// When true, record each participant to a separate mono WAV file in addition to the full mix. Only applies to room recordings.
 	MultiChannel bool `json:"multi_channel"`
@@ -252,48 +233,23 @@ type RecordingRequest struct {
 	S3AccessKey string `json:"s3_access_key"`
 	// AWS secret access key. Must be set together with s3_access_key.
 	S3SecretKey string `json:"s3_secret_key"`
+	// GCS bucket name. Overrides GCS_BUCKET env var. Required if env var is not set when storage=gcs.
+	GcsBucket string `json:"gcs_bucket"`
+	// Object name prefix (e.g. recordings or recordings/). Overrides GCS_OBJECT_NAME_PREFIX env var. A trailing slash is added automatically when missing.
+	GcsObjectNamePrefix string `json:"gcs_object_name_prefix"`
+	// Optional output basename for the WAV file. A .wav suffix is added when missing. Must be a single path segment (no directories). Dots inside the name are preserved (only a trailing .wav is treated as the extension). Rejected with 409 if the file already exists or another recording is using the same name. When omitted, a timestamped name is generated.
+	Filename string `json:"filename"`
 }
 
-// WebRTCOfferRequest is a web r t c offer request.
-type WebRTCOfferRequest struct {
-	// SDP offer from the browser.
-	SDP string `json:"sdp"`
-	// Application identifier. Carried through to all events emitted for this leg, and matched against the VSI `app_id` filter.
-	AppID string `json:"app_id,omitempty"`
+// RegistrationAcceptRequest is a registration accept request.
+type RegistrationAcceptRequest struct {
+	MaxExpires int `json:"max_expires,omitempty"`
 }
 
-// CreateRoomRequest is a create room request.
-type CreateRoomRequest struct {
-	// Custom room ID (auto-generated UUID if omitted).
-	ID string `json:"id"`
-	// Route all events for this room exclusively to this URL instead of global webhooks.
-	WebhookURL string `json:"webhook_url,omitempty"`
-	// HMAC-SHA256 signing secret for the per-room webhook.
-	WebhookSecret string `json:"webhook_secret,omitempty"`
-	// Application identifier. Carried through to all events for this room. Use to filter the WebSocket event stream by app.
-	AppID string `json:"app_id,omitempty"`
-	// Mixer sample rate in Hz. Allowed values: 8000, 16000, 48000. Default: 16000.
-	SampleRate int `json:"sample_rate,omitempty"`
-}
-
-// AddLegRequest is a add leg request.
-type AddLegRequest struct {
-	// ID of the leg to add.
-	LegID string `json:"leg_id"`
-	// If set, apply this mute state to the leg atomically before it joins the mixer (no race where un-muted audio enters the mix). Omit to leave current state untouched (useful when moving between rooms).
-	Mute *bool `json:"mute,omitempty"`
-	// If set, apply this deaf state to the leg atomically before it joins the mixer. Omit to leave current state untouched.
-	Deaf *bool `json:"deaf,omitempty"`
-	// If set, control whether this leg receives DTMF digits broadcast from other legs in the same room. Omit to leave current state untouched (default for new legs is true).
-	AcceptDTMF *bool `json:"accept_dtmf,omitempty"`
-	// If set, apply this routing role to the leg atomically before it joins the mixer. The room's routing matrix (see PUT /v1/rooms/{id}/routing) decides which other legs this leg hears and is heard by based on roles. Pass "" to clear the role (full mesh). Omit to leave the current role untouched.
-	Role string `json:"role,omitempty"`
-}
-
-// SetLegRoleRequest is a set leg role request.
-type SetLegRoleRequest struct {
-	// New routing role for the leg. The room's routing matrix decides which other legs this leg hears and is heard by based on roles. Pass an empty string to clear the role (full mesh).
-	Role string `json:"role"`
+// RegistrationRejectRequest is a registration reject request.
+type RegistrationRejectRequest struct {
+	Code   int    `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // RoomRoutingRequest is a room routing request.
@@ -306,6 +262,482 @@ type RoomRoutingRequest struct {
 type RoomRoutingUpdateRequest struct {
 	// Per-listener-role row replacements applied as a single atomic update.
 	Updates []RoutingRowUpdate `json:"updates"`
+}
+
+// STTRequest is a STT request.
+type STTRequest struct {
+	// Language code (e.g. "en", "es").
+	Language string `json:"language"`
+	// Emit partial (non-final) transcripts.
+	Partial bool `json:"partial"`
+	// STT provider: "elevenlabs" (default), "deepgram" (/v1/listen), "deepgram_flux" (/v2/listen, conversational turn detection) or "azure".
+	Provider string `json:"provider,omitempty"`
+	// API key override (falls back to ELEVENLABS_API_KEY, DEEPGRAM_API_KEY or AZURE_SPEECH_KEY env var depending on provider).
+	APIKey string `json:"api_key,omitempty"`
+	// Provider-specific model. Deepgram: default "nova-3". Deepgram Flux: "flux-general-en" (default) or "flux-general-multi".
+	Model string `json:"model,omitempty"`
+	// Terms to boost recognition of (Deepgram and Deepgram Flux).
+	Keyterms []string `json:"keyterms,omitempty"`
+	// Deepgram only: milliseconds of silence before a segment is finalized. 0 disables endpointing.
+	Endpointing int `json:"endpointing,omitempty"`
+	// Deepgram only: milliseconds of silence after which an stt.turn event with event=utterance_end is emitted. Deepgram requires interim results for this, which are requested automatically and still suppressed unless partial is true.
+	UtteranceEndMs int `json:"utterance_end_ms,omitempty"`
+	// Deepgram Flux only: end-of-turn confidence that fires an eager_end_of_turn stt.turn event, enabling speculative generation. Must be between 0.3 and 0.9. When unset, no eager_end_of_turn or turn_resumed events are emitted at all.
+	EagerEotThreshold float64 `json:"eager_eot_threshold,omitempty"`
+	// Deepgram Flux only: end-of-turn confidence required to close a turn. Deepgram default 0.7.
+	EotThreshold float64 `json:"eot_threshold,omitempty"`
+	// Deepgram Flux only: milliseconds of silence after which a turn is closed regardless of confidence. Deepgram default 5000.
+	EotTimeoutMs int `json:"eot_timeout_ms,omitempty"`
+	// Deepgram Flux only: candidate language codes for the "flux-general-multi" model.
+	LanguageHints []string `json:"language_hints,omitempty"`
+}
+
+// SetLegRoleRequest is a set leg role request.
+type SetLegRoleRequest struct {
+	// New routing role for the leg. The room's routing matrix decides which other legs this leg hears and is heard by based on roles. Pass an empty string to clear the role (full mesh).
+	Role string `json:"role"`
+}
+
+// StartSIPRECRequest is a start SIPREC request.
+type StartSIPRECRequest struct {
+	// SIP URI of the session recording server, e.g. "sip:srs@recorder.example.com:5060". A recording session carries the metadata document alongside the SDP and exceeds the UDP message limit, so the target should accept TCP.
+	SrsURI string `json:"srs_uri"`
+	// Which participants to record. Each entry is either a leg ID (that leg's own audio) or "<legID>#<streamID>" for one of a leg's secondary audio streams mixed into the room. Empty or absent records every participant. An entry that is not in the room is a 404.
+	LegIds []string `json:"leg_ids,omitempty"`
+	// Communication session identifier put in the recording metadata. Defaults to the room ID.
+	SessionID string `json:"session_id,omitempty"`
+	// Application identifier tagged onto the resulting leg and its events.
+	AppID string `json:"app_id,omitempty"`
+	// SIP digest username, when the recording server challenges the INVITE.
+	AuthUsername string `json:"auth_username,omitempty"`
+	// SIP digest password, when the recording server challenges the INVITE.
+	AuthPassword string `json:"auth_password,omitempty"`
+	// Extra SIP headers to include in the INVITE. Require: siprec is always sent.
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// TTSRequest is a TTS request.
+type TTSRequest struct {
+	// Text to synthesize.
+	Text string `json:"text"`
+	// Provider-specific voice identifier. ElevenLabs: voice name or ID. AWS Polly: voice ID (e.g. Joanna, Matthew). Google Cloud: voice name — either full format (e.g. en-US-Neural2-F) or short name for Gemini models (e.g. Achernar, Kore). Deepgram: model name (e.g. aura-2-asteria-en).
+	Voice string `json:"voice"`
+	// Provider-specific model/engine. ElevenLabs: model ID. AWS Polly: engine (standard, neural, long-form, generative; default neural). Google Cloud: model name (e.g. gemini-2.5-pro-tts, chirp3-hd).
+	ModelID string `json:"model_id"`
+	// Language code (e.g. "en-US", "pl-pl"). Required for Google Gemini TTS voices that use short names (e.g. Achernar). Auto-extracted from full voice names like en-US-Neural2-F.
+	Language string `json:"language,omitempty"`
+	// Style/tone instruction for promptable voice models (Google Gemini TTS only). E.g. "Read aloud in a warm, welcoming tone.".
+	Prompt string `json:"prompt,omitempty"`
+	// Volume adjustment in dB (-8 to 8).
+	Volume int `json:"volume"`
+	// TTS provider: "elevenlabs" (default), "aws", "google", or "deepgram".
+	Provider string `json:"provider,omitempty"`
+	// ElevenLabs: API key override (falls back to ELEVENLABS_API_KEY env var). AWS: optional ACCESS_KEY:SECRET_KEY override (falls back to default AWS credential chain). Google Cloud: optional API key override (falls back to Application Default Credentials). Deepgram: API key override (falls back to DEEPGRAM_API_KEY env var).
+	APIKey string `json:"api_key,omitempty"`
+}
+
+// TransferCompleteRequest is a transfer complete request.
+type TransferCompleteRequest struct {
+	Success    bool   `json:"success"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// TransferDeclineRequest is a transfer decline request.
+type TransferDeclineRequest struct {
+	Code   int    `json:"code,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// TransferProgressRequest is a transfer progress request.
+type TransferProgressRequest struct {
+	StatusCode int    `json:"status_code"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// TransferRequest is a transfer request.
+type TransferRequest struct {
+	// SIP URI to transfer the call to (e.g. "sip:bob@example.com").
+	Target string `json:"target"`
+	// ID of an existing connected SIP leg whose dialog should be replaced (attended transfer). Omit for blind transfer.
+	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
+}
+
+// UpdateLegStreamRequest is a update leg stream request.
+type UpdateLegStreamRequest struct {
+	// New routing role for this stream inside its room. The room's routing matrix decides who hears it. Pass an empty string to clear the role (full mesh). Omit to leave it untouched. Applied atomically — the room's allow-sets are recomputed in a single mixer-mutex acquisition, so no audio bleeds through mid-change.
+	Role string `json:"role,omitempty"`
+}
+
+// UpdateRoomBridgeRequest is a update room bridge request.
+type UpdateRoomBridgeRequest struct {
+	// New audio flow relative to the room in the path: bidirectional, send, receive, or none.
+	Direction string `json:"direction"`
+}
+
+// VAPIAgentRequest is a VAPI agent request.
+type VAPIAgentRequest struct {
+	// VAPI assistant ID.
+	AssistantID string `json:"assistant_id"`
+	// Override the agent's first message.
+	FirstMessage string `json:"first_message,omitempty"`
+	// Key-value pairs passed as VAPI variable values (assistantOverrides.variableValues).
+	VariableValues map[string]string `json:"variable_values,omitempty"`
+	// API key override (falls back to VAPI_API_KEY env var).
+	APIKey string `json:"api_key,omitempty"`
+}
+
+// VolumeRequest is a volume request.
+type VolumeRequest struct {
+	// Volume adjustment (-8 to 8, ~3dB per step, 0 = unchanged).
+	Volume int `json:"volume"`
+}
+
+// WebRTCOfferRequest is a web RTC offer request.
+type WebRTCOfferRequest struct {
+	// SDP offer from the browser.
+	SDP string `json:"sdp"`
+	// Application identifier. Carried through to all events emitted for this leg, and matched against the VSI `app_id` filter.
+	AppID string `json:"app_id,omitempty"`
+}
+
+// AMDParams is a AMD params.
+type AMDParams struct {
+	// Max milliseconds of silence before declaring no_speech.
+	InitialSilenceTimeout int `json:"initial_silence_timeout,omitempty"`
+	// Speech duration threshold (ms) above which answerer is classified as machine.
+	GreetingDuration int `json:"greeting_duration,omitempty"`
+	// Silence duration (ms) after initial speech to declare human.
+	AfterGreetingSilence int `json:"after_greeting_silence,omitempty"`
+	// Max analysis window in milliseconds. A threshold longer than this window suppresses that verdict; a window shorter than all of initial_silence_timeout, greeting_duration and after_greeting_silence is rejected, since the call could only end not_sure.
+	TotalAnalysisTime int `json:"total_analysis_time,omitempty"`
+	// Minimum speech burst duration (ms) to count as a word.
+	MinimumWordLength int `json:"minimum_word_length,omitempty"`
+	// Max time (ms) to wait for the voicemail beep after machine detection. 0 or omitted = disabled.
+	BeepTimeout int `json:"beep_timeout,omitempty"`
+}
+
+// AddRoomStream is a add room stream.
+type AddRoomStream struct {
+	// Stream identifier from GET /v1/legs/{id}/streams. The primary stream is not addressable here — it joins with the leg itself.
+	StreamID string `json:"stream_id"`
+	// Routing role for this stream inside the room.
+	Role string `json:"role,omitempty"`
+}
+
+// AnswerLegStream is a answer leg stream.
+type AnswerLegStream struct {
+	// Room to mix this stream into once the answer is negotiated. May differ from the room the leg itself joins.
+	RoomID string `json:"room_id,omitempty"`
+	// Routing role for this stream inside its room.
+	Role string `json:"role,omitempty"`
+}
+
+// BridgeView is a bridge view.
+type BridgeView struct {
+	// Bridge identifier.
+	ID string `json:"id"`
+	// The peer room joined to the room in the path.
+	RoomID string `json:"room_id"`
+	// Audio flow relative to the room in the path: bidirectional, send, receive, or none.
+	Direction string `json:"direction"`
+	// Shared mixer sample rate in Hz (both rooms must match).
+	SampleRate int `json:"sample_rate"`
+}
+
+// ChannelInfo is a channel info.
+type ChannelInfo struct {
+	Channel int `json:"channel"`
+	StartMs int `json:"start_ms"`
+	EndMs   int `json:"end_ms"`
+}
+
+// CreateLegStream is a create leg stream.
+type CreateLegStream struct {
+	// Media direction for this stream, from this server's point of view. Defaults to sendrecv.
+	Direction string `json:"direction,omitempty"`
+	// BCP 47 language tag advertised as a=lang (RFC 8866), e.g. "es-ES" for a Spanish translation feed.
+	Lang string `json:"lang,omitempty"`
+	// Value advertised as a=content (RFC 4796). Use "alt" for an alternative feed such as a translation.
+	Content string `json:"content,omitempty"`
+	// Value advertised as a=label (RFC 4574), for correlating the stream with external metadata.
+	Label string `json:"label,omitempty"`
+	// Room to mix this stream into once the call connects. May differ from the leg's own room_id, which governs the primary stream.
+	RoomID string `json:"room_id,omitempty"`
+	// Routing role for this stream inside its room.
+	Role string `json:"role,omitempty"`
+}
+
+// CreateTrunkResponse is a create trunk response.
+type CreateTrunkResponse struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+}
+
+// IPIPTrunkSpec is a IPIP trunk spec.
+type IPIPTrunkSpec struct {
+	// Static peer SIP URI for IP-IP peering. Reserved; not yet implemented.
+	PeerURI string `json:"peer_uri,omitempty"`
+}
+
+// IPIPTrunkView is a IPIP trunk view.
+type IPIPTrunkView struct {
+	PeerURI string `json:"peer_uri,omitempty"`
+}
+
+// LegStreamView is a leg stream view.
+type LegStreamView struct {
+	// Stream identifier, stable for the life of the dialog. The primary stream is always "0".
+	ID string `json:"id"`
+	// The stream's SDP a=mid token (RFC 5888), used to correlate it across offer/answer.
+	Mid string `json:"mid,omitempty"`
+	// Position of the stream's m= line in the SDP. Fixed for the life of the dialog (RFC 3264 §8).
+	Index int `json:"index"`
+	// True for the call's main bidirectional audio stream, which cannot be removed or attached to a room independently.
+	Primary bool `json:"primary"`
+	// Negotiation state.
+	State string `json:"state"`
+	// Negotiated media direction from this server's point of view.
+	Direction string `json:"direction"`
+	// Direction requested by the application. Survives hold/unhold, unlike the negotiated direction.
+	DesiredDirection string `json:"desired_direction,omitempty"`
+	// Codec negotiated for this stream. Streams on one leg may use different codecs.
+	Codec string `json:"codec,omitempty"`
+	// Native sample rate of the stream's codec, in Hz.
+	SampleRate int `json:"sample_rate,omitempty"`
+	// Local RTP port. Each stream binds its own port; a shared transport is undefined without BUNDLE (RFC 9143).
+	LocalPort int `json:"local_port,omitempty"`
+	// Remote RTP address media is currently sent to.
+	RemoteAddr string `json:"remote_addr,omitempty"`
+	// The stream's a=label value (RFC 4574), for correlating it with external metadata.
+	Label string `json:"label,omitempty"`
+	// The stream's a=content value (RFC 4796), e.g. "main" for original audio and "alt" for a translated feed.
+	Content string `json:"content,omitempty"`
+	// The stream's a=lang value (RFC 8866): a BCP 47 language tag such as "en" or "es-ES".
+	Lang string `json:"lang,omitempty"`
+	// Room this stream's audio is mixed into. A secondary stream may sit in a different room than its leg.
+	RoomID string `json:"room_id,omitempty"`
+	// Routing role of this stream within its room. Streams carry their own role, independent of their leg's.
+	Role string `json:"role,omitempty"`
+}
+
+// LiveKitParams is a live kit params.
+type LiveKitParams struct {
+	// LiveKit server endpoint (wss://...). Overrides LIVEKIT_URL.
+	URL string `json:"url,omitempty"`
+	// Pre-signed LiveKit JWT. Mutually exclusive with `room`/`identity` (mint mode); if both are present the token wins.
+	Token string `json:"token,omitempty"`
+	// LiveKit room name. Required when minting (i.e. `token` is empty AND LIVEKIT_TOKEN_SIGNING_ENABLED=true).
+	Room string `json:"room,omitempty"`
+	// LiveKit participant identity. Required when minting.
+	Identity string `json:"identity,omitempty"`
+	// Display name for the participant; surfaces in LK Room UIs.
+	ParticipantName string `json:"participant_name,omitempty"`
+	// LiveKit grant flags. Nil pointers default to publish=true, subscribe=true, data=false, admin=false.
+	Permissions *LiveKitPermissions `json:"permissions,omitempty"`
+	// Go duration string (e.g. "30m", "6h"). Used only when minting. Defaults to LIVEKIT_DEFAULT_TOKEN_TTL (6h).
+	TokenTtl string `json:"token_ttl,omitempty"`
+	// Override LIVEKIT_OPUS_BITRATE for this leg. 6000..510000.
+	OpusBitrate int `json:"opus_bitrate,omitempty"`
+}
+
+// LiveKitPermissions is a live kit permissions.
+type LiveKitPermissions struct {
+	// Allow publishing tracks. Default true.
+	CanPublish bool `json:"can_publish,omitempty"`
+	// Allow subscribing to remote tracks. Default true.
+	CanSubscribe bool `json:"can_subscribe,omitempty"`
+	// Allow publishing data channel messages. Default false (audio bridge does not use data).
+	CanPublishData bool `json:"can_publish_data,omitempty"`
+	// Grant admin actions on the room (e.g., server-side MuteTrack of remote participants). Default false.
+	RoomAdmin bool `json:"room_admin,omitempty"`
+}
+
+// OfferedCodec is a offered codec.
+type OfferedCodec struct {
+	Name        string `json:"name"`
+	PayloadType int    `json:"payload_type"`
+	ClockRate   int    `json:"clock_rate"`
+	Priority    int    `json:"priority"`
+}
+
+// ParticipantInfo is a participant info.
+type ParticipantInfo struct {
+	ID   string `json:"id"`
+	Aor  string `json:"aor,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// RegistrationView is a registration view.
+type RegistrationView struct {
+	Aor                   string `json:"aor"`
+	Contact               string `json:"contact"`
+	Socket                string `json:"socket"`
+	Transport             string `json:"transport"`
+	UserAgent             string `json:"user_agent,omitempty"`
+	CallID                string `json:"call_id,omitempty"`
+	AppID                 string `json:"app_id,omitempty"`
+	CreatedAt             string `json:"created_at"`
+	LastRefresh           string `json:"last_refresh"`
+	ExpiresAt             string `json:"expires_at"`
+	GrantedExpiresSeconds int    `json:"granted_expires_seconds"`
+}
+
+// RegistrationsResponse is a registrations response.
+type RegistrationsResponse struct {
+	Bindings []RegistrationView `json:"bindings"`
+}
+
+// RoomRoutingView is a room routing view.
+type RoomRoutingView struct {
+	// Listener-role → list of allowed source roles. Roles absent from the matrix default to full mesh.
+	Matrix map[string][]string `json:"matrix"`
+}
+
+// RoutingRowUpdate is a routing row update.
+type RoutingRowUpdate struct {
+	// The role whose row is being replaced.
+	ListenerRole string `json:"listener_role"`
+	// New list of allowed source roles for this listener role. Pass null to clear the row (full mesh).
+	Sources []string `json:"sources"`
+}
+
+// SIPAuth is a SIP auth.
+type SIPAuth struct {
+	// Digest auth username. Optional for whatsapp legs (defaults to `from` with '+' stripped, per Meta's spec).
+	Username string `json:"username,omitempty"`
+	// Digest auth password.
+	Password string `json:"password"`
+}
+
+// SIPRECParticipantView is a SIPREC participant view.
+type SIPRECParticipantView struct {
+	// The participant_id attribute from the recording metadata document.
+	ParticipantID string `json:"participant_id"`
+	// The participant's address of record, e.g. "sip:alice@example.com".
+	Aor string `json:"aor,omitempty"`
+	// The participant's display name, when the metadata carries one.
+	Name string `json:"name,omitempty"`
+}
+
+// SIPRECSessionView is a SIPREC session view.
+type SIPRECSessionView struct {
+	// Leg carrying the recording session.
+	LegID string `json:"leg_id"`
+	// Communication session being recorded, from the metadata's sessionrecordingassoc.
+	SessionID string `json:"session_id,omitempty"`
+	// Data mode of the most recently applied metadata document (RFC 7865 §6.1).
+	DataMode string `json:"data_mode,omitempty"`
+	// Room this session's streams were attached to, when SIPREC_ROOM_MODE placed them in one.
+	RoomID string `json:"room_id,omitempty"`
+	// Every party currently recorded by this session.
+	Participants []SIPRECParticipantView `json:"participants"`
+	// Every negotiated media stream, joined to the participant it carries.
+	Streams []SIPRECStreamView `json:"streams"`
+	// The raw rs-metadata XML document as most recently received.
+	Metadata string `json:"metadata,omitempty"`
+}
+
+// SIPRECStream is a SIPREC stream.
+type SIPRECStream struct {
+	Label           string `json:"label,omitempty"`
+	LegStreamID     string `json:"leg_stream_id,omitempty"`
+	ParticipantID   string `json:"participant_id,omitempty"`
+	ParticipantAor  string `json:"participant_aor,omitempty"`
+	ParticipantName string `json:"participant_name,omitempty"`
+}
+
+// SIPRECStreamView is a SIPREC stream view.
+type SIPRECStreamView struct {
+	// Identifier of the leg stream carrying this recorded media, as used by /v1/legs/{id}/streams.
+	LegStreamID string `json:"leg_stream_id"`
+	// The stream's SDP a=mid token (RFC 5888).
+	Mid string `json:"mid,omitempty"`
+	// The stream's a=label value (RFC 4574). This is the key that binds the m= section to the recording metadata.
+	Label string `json:"label,omitempty"`
+	// Negotiated media direction. Always recvonly or inactive: a recording server never transmits.
+	Direction string `json:"direction,omitempty"`
+	// Codec negotiated for this stream.
+	Codec string `json:"codec,omitempty"`
+	// Room this stream's audio is mixed into, when it has been attached to one.
+	RoomID string `json:"room_id,omitempty"`
+	// Routing role of this stream within its room. Defaults to the participant's identity.
+	Role string `json:"role,omitempty"`
+	// Participant whose audio arrives on this stream, from the metadata's participantstreamassoc send binding.
+	ParticipantID string `json:"participant_id,omitempty"`
+	// Address of record of the participant sending on this stream.
+	ParticipantAor string `json:"participant_aor,omitempty"`
+	// Display name of the participant sending on this stream.
+	ParticipantName string `json:"participant_name,omitempty"`
+}
+
+// SIPRegisterTrunkSpec is a SIP register trunk spec.
+type SIPRegisterTrunkSpec struct {
+	// Upstream registrar SIP URI (e.g. "sip:pbx.example.com:5060" or "sips:pbx.example.com:5061;transport=tls").
+	RegistrarURI string `json:"registrar_uri"`
+	// Address-of-record this trunk REGISTERs (e.g. "sip:alice@pbx.example.com"). Becomes the From URI on outbound REGISTER, and the From / P-Asserted-Identity host on outbound INVITEs placed `from` this AOR.
+	Aor string `json:"aor"`
+	// Digest auth username. Defaults to the AOR user-part when empty.
+	Username string `json:"username,omitempty"`
+	// Digest auth password. Required. Never returned in any response.
+	Password string `json:"password"`
+	// Override the user-part of the Contact header sent in REGISTER. Defaults to the AOR user-part.
+	ContactUser string `json:"contact_user,omitempty"`
+	// Requested registration lifetime in seconds. Clamped to [SIP_OUTBOUND_REGISTRATION_MIN_EXPIRES_SECONDS, SIP_OUTBOUND_REGISTRATION_MAX_EXPIRES_SECONDS]. Default: SIP_OUTBOUND_REGISTRATION_DEFAULT_EXPIRES_SECONDS (3600).
+	ExpiresSeconds int `json:"expires_seconds,omitempty"`
+}
+
+// SIPRegisterTrunkView is a SIP register trunk view.
+type SIPRegisterTrunkView struct {
+	RegistrarURI            string `json:"registrar_uri"`
+	Aor                     string `json:"aor"`
+	Username                string `json:"username,omitempty"`
+	ContactURI              string `json:"contact_uri,omitempty"`
+	RequestedExpiresSeconds int    `json:"requested_expires_seconds"`
+	GrantedExpiresSeconds   int    `json:"granted_expires_seconds,omitempty"`
+	LastRegisteredAt        string `json:"last_registered_at,omitempty"`
+	NextRefreshAt           string `json:"next_refresh_at,omitempty"`
+	CallID                  string `json:"call_id,omitempty"`
+	Cseq                    int    `json:"cseq,omitempty"`
+	SourceAddress           string `json:"source_address,omitempty"`
+}
+
+// STTWord is a STT word.
+type STTWord struct {
+	Word       string  `json:"word"`
+	Confidence float64 `json:"confidence"`
+	StartMs    int     `json:"start_ms"`
+	EndMs      int     `json:"end_ms"`
+}
+
+// TrunkView is a trunk view.
+type TrunkView struct {
+	ID          string                `json:"id"`
+	Type        string                `json:"type"`
+	AppID       string                `json:"app_id,omitempty"`
+	Status      string                `json:"status"`
+	LastError   string                `json:"last_error,omitempty"`
+	CreatedAt   string                `json:"created_at"`
+	SIPRegister *SIPRegisterTrunkView `json:"sip_register,omitempty"`
+	IpIp        *IPIPTrunkView        `json:"ip_ip,omitempty"`
+}
+
+// TrunksListResponse is a trunks list response.
+type TrunksListResponse struct {
+	Trunks []TrunkView `json:"trunks"`
+}
+
+// WebRTCCandidatesResult is a web RTC candidates result.
+type WebRTCCandidatesResult struct {
+	Candidates []ICECandidateInit `json:"candidates"`
+	Done       bool               `json:"done"`
+}
+
+// WebRTCOfferResult is a web RTC offer result.
+type WebRTCOfferResult struct {
+	LegID string `json:"leg_id"`
+	SDP   string `json:"sdp"`
 }
 
 // ICECandidateInit is a WebRTC ICE candidate initialisation struct.

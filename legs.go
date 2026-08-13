@@ -251,6 +251,28 @@ func (l *Leg) PlayTTS(ctx context.Context, req TTSRequest) (*TTSResponse, error)
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/tts", body, &out)
 }
 
+// PreflightTTSLeg synthesize speech and hold it for a later commit
+func (l *Leg) PreflightTTSLeg(ctx context.Context, req TTSRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/tts/preflight", body, &out)
+}
+
+// CommitTTSLeg play a staged TTS utterance
+func (l *Leg) CommitTTSLeg(ctx context.Context, ttsID string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/tts/"+ttsID+"/commit", nil, &out)
+}
+
+// DiscardTTSLeg drop a staged TTS utterance without playing it
+func (l *Leg) DiscardTTSLeg(ctx context.Context, ttsID string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/tts/"+ttsID, nil, &out)
+}
+
 // Record start recording a leg to a WAV file
 func (l *Leg) Record(ctx context.Context, req RecordingRequest) (*RecordingResponse, error) {
 	body, err := encodeJSON(req)
@@ -293,6 +315,12 @@ func (l *Leg) STT(ctx context.Context, req STTRequest) (*StatusResponse, error) 
 func (l *Leg) StopSTT(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
 	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/stt", nil, &out)
+}
+
+// FinalizeSTTLeg flush the STT buffer on a leg without stopping STT
+func (l *Leg) FinalizeSTTLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/stt/finalize", nil, &out)
 }
 
 // ElevenLabsAgent attach an ElevenLabs ConvAI agent to a leg
@@ -359,6 +387,80 @@ func (l *Leg) StartAMD(ctx context.Context, req AMDParams) (*StatusResponse, err
 	}
 	var out StatusResponse
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/amd", body, &out)
+}
+
+// GetSIPRECSession get a SIPREC recording session
+func (l *Leg) GetSIPRECSession(ctx context.Context) (*SIPRECSessionView, error) {
+	var out SIPRECSessionView
+	return &out, l.client.do(ctx, http.MethodGet, "/legs/"+l.ID+"/siprec", nil, &out)
+}
+
+// StartLegSIPREC fork a single call to an external SIPREC recording server
+func (l *Leg) StartLegSIPREC(ctx context.Context, req StartSIPRECRequest) (*Leg, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out Leg
+	if err := l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/siprec", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = l.client
+	return &out, nil
+}
+
+// ListLegStreams list a leg's audio streams
+func (l *Leg) ListLegStreams(ctx context.Context) ([]LegStreamView, error) {
+	var out []LegStreamView
+	return out, l.client.do(ctx, http.MethodGet, "/legs/"+l.ID+"/streams", nil, &out)
+}
+
+// AddLegStream add an audio stream to a live call
+func (l *Leg) AddLegStream(ctx context.Context, req AddLegStreamRequest) (*LegStreamView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out LegStreamView
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/streams", body, &out)
+}
+
+// GetLegStream get one of a leg's audio streams
+func (l *Leg) GetLegStream(ctx context.Context, streamId string) (*LegStreamView, error) {
+	var out LegStreamView
+	return &out, l.client.do(ctx, http.MethodGet, "/legs/"+l.ID+"/streams/"+streamId, nil, &out)
+}
+
+// UpdateLegStream change an audio stream's routing role
+func (l *Leg) UpdateLegStream(ctx context.Context, streamId string, req UpdateLegStreamRequest) (*LegStreamView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out LegStreamView
+	return &out, l.client.do(ctx, http.MethodPatch, "/legs/"+l.ID+"/streams/"+streamId, body, &out)
+}
+
+// RemoveLegStream remove an audio stream from a live call
+func (l *Leg) RemoveLegStream(ctx context.Context, streamId string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/streams/"+streamId, nil, &out)
+}
+
+// AttachLegStreamRoom mix an audio stream into a room
+func (l *Leg) AttachLegStreamRoom(ctx context.Context, streamId string, req AttachStreamRoomRequest) (*LegStreamView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out LegStreamView
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/streams/"+streamId+"/room", body, &out)
+}
+
+// DetachLegStreamRoom remove an audio stream from its room
+func (l *Leg) DetachLegStreamRoom(ctx context.Context, streamId string) (*LegStreamView, error) {
+	var out LegStreamView
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/streams/"+streamId+"/room", nil, &out)
 }
 
 // SetRole change a leg's routing role

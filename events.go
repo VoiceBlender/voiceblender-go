@@ -65,7 +65,7 @@ type LegDisconnectedEvent struct {
 	LegID string `json:"leg_id,omitempty"`
 	AppID string `json:"app_id,omitempty"`
 	Cdr   struct {
-		// Disconnect reason. Common SIP failures are mapped to named reasons; unmapped 4xx/5xx/6xx codes appear as sip_{code}.
+		// Disconnect reason. Common SIP failures are mapped to named reasons; unmapped 4xx/5xx/6xx codes appear as sip_{code}. This is an open set — treat an unrecognized value as a new reason rather than an error. Known values: api_hangup, room_deleted, remote_bye, caller_cancel, max_duration, session_expired, rtp_timeout, busy, declined, rejected, unavailable, not_found, forbidden, server_error, ring_timeout, unauthorized, timeout, cancelled, not_acceptable, service_unavailable, invite_failed, connect_failed, challenged, transfer_completed, transfer_originate_failed, transfer_connect_failed, bad_answer, siprec_answer_failed, mixer_panic, hangup, peer_slow, connection_reset, ws_error, ws_dial_failed, moq_error, ice_failure, ice_failed, ice_disconnected, livekit_client_initiated, livekit_duplicate_identity, livekit_server_shutdown, livekit_kicked, livekit_room_deleted, livekit_state_mismatch, livekit_join_failure, livekit_migration, livekit_signal_close, livekit_room_closed, livekit_user_unavailable, livekit_user_rejected, livekit_token_expired, livekit_media_failure, livekit_disconnected, livekit_client_closed, livekit_signal_closed, livekit_signal_error, livekit_pc_setup_failed, livekit_add_track_failed, livekit_publisher_failed, livekit_subscriber_failed, livekit_signal_loop_exit, livekit_set_remote_desc_failed, livekit_create_answer_failed, livekit_set_local_desc_failed, livekit_signal_send_failed, livekit_set_publisher_remote_failed, livekit_participant_left.
 		Reason string `json:"reason"`
 		// Seconds from leg creation to disconnect.
 		DurationTotal float64 `json:"duration_total"`
@@ -164,6 +164,150 @@ type LegCommandFailedEvent struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// LegStreamAddedEvent is fired when: an additional m=audio stream was negotiated on a live dialog
+type LegStreamAddedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	StreamID  string `json:"stream_id,omitempty"`
+	Mid       string `json:"mid,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// LegStreamRemovedEvent is fired when: an audio stream was disabled with a port-0 re-INVITE; its m-line slot survives as a tombstone
+type LegStreamRemovedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	StreamID  string `json:"stream_id,omitempty"`
+	Mid       string `json:"mid,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// LegStreamRejectedEvent is fired when: the peer refused an additional audio stream, or it could not be negotiated; the call is unaffected
+type LegStreamRejectedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	StreamID  string `json:"stream_id,omitempty"`
+	Mid       string `json:"mid,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// LegStreamFailedEvent is fired when: an audio stream's media loop failed and the stream was torn down; the call continues on its remaining streams
+type LegStreamFailedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	StreamID  string `json:"stream_id,omitempty"`
+	Mid       string `json:"mid,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// LegStreamRoomChangedEvent is fired when: an audio stream was attached to or detached from a room (an empty room_id means detached)
+type LegStreamRoomChangedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	StreamID  string `json:"stream_id,omitempty"`
+	Mid       string `json:"mid,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// LegStreamRoleChangedEvent is fired when: an audio stream's routing role changed; the room's allow-sets were recomputed atomically
+type LegStreamRoleChangedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	StreamID  string `json:"stream_id,omitempty"`
+	Mid       string `json:"mid,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// SiprecSessionStartedEvent is fired when: an inbound SIPREC recording session was accepted; carries the participants and the stream-to-participant bindings
+type SiprecSessionStartedEvent struct {
+	Event
+	LegID        string            `json:"leg_id,omitempty"`
+	AppID        string            `json:"app_id,omitempty"`
+	SessionID    string            `json:"session_id,omitempty"`
+	DataMode     string            `json:"data_mode,omitempty"`
+	Participants []ParticipantInfo `json:"participants,omitempty"`
+	Streams      []SIPRECStream    `json:"streams,omitempty"`
+}
+
+// SiprecSessionEndedEvent is fired when: a SIPREC recording session ended
+type SiprecSessionEndedEvent struct {
+	Event
+	LegID     string `json:"leg_id,omitempty"`
+	AppID     string `json:"app_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// SiprecMetadataUpdatedEvent is fired when: a SIPREC recording session's metadata document was updated on a re-INVITE
+type SiprecMetadataUpdatedEvent struct {
+	Event
+	LegID              string         `json:"leg_id,omitempty"`
+	AppID              string         `json:"app_id,omitempty"`
+	SessionID          string         `json:"session_id,omitempty"`
+	DataMode           string         `json:"data_mode,omitempty"`
+	ParticipantsJoined []string       `json:"participants_joined,omitempty"`
+	ParticipantsLeft   []string       `json:"participants_left,omitempty"`
+	StreamsAdded       []string       `json:"streams_added,omitempty"`
+	StreamsRemoved     []string       `json:"streams_removed,omitempty"`
+	Streams            []SIPRECStream `json:"streams,omitempty"`
+}
+
+// SiprecParticipantJoinedEvent is fired when: a party joined the call being recorded by a SIPREC session
+type SiprecParticipantJoinedEvent struct {
+	Event
+	LegID           string `json:"leg_id,omitempty"`
+	AppID           string `json:"app_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	Label           string `json:"label,omitempty"`
+	LegStreamID     string `json:"leg_stream_id,omitempty"`
+	ParticipantID   string `json:"participant_id,omitempty"`
+	ParticipantAor  string `json:"participant_aor,omitempty"`
+	ParticipantName string `json:"participant_name,omitempty"`
+}
+
+// SiprecParticipantLeftEvent is fired when: a party left the call being recorded by a SIPREC session
+type SiprecParticipantLeftEvent struct {
+	Event
+	LegID           string `json:"leg_id,omitempty"`
+	AppID           string `json:"app_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	Label           string `json:"label,omitempty"`
+	LegStreamID     string `json:"leg_stream_id,omitempty"`
+	ParticipantID   string `json:"participant_id,omitempty"`
+	ParticipantAor  string `json:"participant_aor,omitempty"`
+	ParticipantName string `json:"participant_name,omitempty"`
+}
+
 // DTMFReceivedEvent is fired when: dTMF digit received
 type DTMFReceivedEvent struct {
 	Event
@@ -231,6 +375,10 @@ type PlaybackFinishedEvent struct {
 	AppID  string `json:"app_id,omitempty"`
 	// Playback identifier.
 	PlaybackID string `json:"playback_id,omitempty"`
+	// Why playback ended: 'completed' (reached the end of the audio) or 'stopped' (did not reach the end, for any reason).
+	Reason string `json:"reason,omitempty"`
+	// Milliseconds of audio actually played, accumulated across repeat iterations.
+	PlayedMs int `json:"played_ms,omitempty"`
 }
 
 // PlaybackErrorEvent is fired when: playback failed
@@ -269,6 +417,10 @@ type TTSFinishedEvent struct {
 	AppID  string `json:"app_id,omitempty"`
 	// TTS playback identifier.
 	TTSID string `json:"tts_id,omitempty"`
+	// Why the utterance ended: 'completed' (reached the end of the audio) or 'stopped' (did not reach the end, for any reason).
+	Reason string `json:"reason,omitempty"`
+	// Milliseconds of audio actually played.
+	PlayedMs int `json:"played_ms,omitempty"`
 }
 
 // TTSErrorEvent is fired when: tTS synthesis or playback failed
@@ -283,6 +435,36 @@ type TTSErrorEvent struct {
 	TTSID string `json:"tts_id,omitempty"`
 	// Error message.
 	Error string `json:"error,omitempty"`
+	// Failure category: permanent_auth, permanent_input, rate_limited, service_unavailable, retryable, canceled or unknown for a synthesis failure, playback for a failure while streaming the audio. New values may be added; treat an unrecognised value as unknown.
+	Category string `json:"category,omitempty"`
+}
+
+// TTSStagedEvent is fired when: preflight TTS finished synthesizing and is ready to commit
+type TTSStagedEvent struct {
+	Event
+	// Leg identifier.
+	LegID  string `json:"leg_id,omitempty"`
+	RoomID string `json:"room_id,omitempty"`
+	AppID  string `json:"app_id,omitempty"`
+	// TTS playback identifier, to commit or discard.
+	TTSID string `json:"tts_id,omitempty"`
+	// Size of the buffered audio.
+	Bytes int `json:"bytes,omitempty"`
+	// How long the buffered audio will play for. 0 when the duration is not derivable from the audio format.
+	DurationMs int `json:"duration_ms,omitempty"`
+}
+
+// TTSDiscardedEvent is fired when: staged TTS was dropped without being played
+type TTSDiscardedEvent struct {
+	Event
+	// Leg identifier.
+	LegID  string `json:"leg_id,omitempty"`
+	RoomID string `json:"room_id,omitempty"`
+	AppID  string `json:"app_id,omitempty"`
+	// TTS playback identifier.
+	TTSID string `json:"tts_id,omitempty"`
+	// Why the staged utterance was dropped: 'app' (explicitly discarded), 'expired' (TTS_PREFLIGHT_TTL elapsed) or 'leg_gone' (the leg ended while it was staged).
+	Reason string `json:"reason,omitempty"`
 }
 
 // RecordingStartedEvent is fired when: recording began
@@ -293,7 +475,7 @@ type RecordingStartedEvent struct {
 	// Room identifier.
 	RoomID string `json:"room_id,omitempty"`
 	AppID  string `json:"app_id,omitempty"`
-	// Recording file path or S3 URI.
+	// Recording file path or S3 URI — does not exist yet; the path only appears when the recording stops.
 	File string `json:"file,omitempty"`
 }
 
@@ -309,6 +491,8 @@ type RecordingFinishedEvent struct {
 	File             string                 `json:"file,omitempty"`
 	MultiChannelFile string                 `json:"multi_channel_file,omitempty"`
 	Channels         map[string]ChannelInfo `json:"channels,omitempty"`
+	// Participants whose audio is missing from multi_channel_file because their capture failed. Absent when the recording is complete.
+	OmittedLegs []string `json:"omitted_legs,omitempty"`
 }
 
 // RecordingPausedEvent is fired when: recording paused (audio replaced with silence)
@@ -490,6 +674,36 @@ type STTTextEvent struct {
 	Text string `json:"text,omitempty"`
 	// Whether this is a final or partial transcript.
 	IsFinal bool `json:"is_final,omitempty"`
+	// Whether the speaker stopped talking, as opposed to is_final's 'this segment will not change again'. Deepgram only; always false for providers that do not report it.
+	SpeechFinal bool `json:"speech_final,omitempty"`
+}
+
+// STTTurnEvent is fired when: speech-to-text turn boundary
+type STTTurnEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	// Room identifier.
+	RoomID string `json:"room_id,omitempty"`
+	AppID  string `json:"app_id,omitempty"`
+	// Turn boundary: start_of_turn, update, eager_end_of_turn, turn_resumed or end_of_turn (Deepgram Flux), or utterance_end (Deepgram, when utterance_end_ms is set). New values may be added.
+	TurnEvent string `json:"event,omitempty"`
+	// Index of the turn within the session, incrementing after each end_of_turn.
+	TurnIndex int `json:"turn_index,omitempty"`
+	// Transcript of the turn so far. Empty on utterance_end.
+	Text string `json:"text,omitempty"`
+	// How confident the model is that the turn has ended.
+	EndOfTurnConfidence float64 `json:"end_of_turn_confidence,omitempty"`
+	// Start of the audio window this transcript covers.
+	AudioWindowStartMs int `json:"audio_window_start_ms,omitempty"`
+	// End of the audio window this transcript covers.
+	AudioWindowEndMs int `json:"audio_window_end_ms,omitempty"`
+	// When the last word ended (utterance_end only).
+	LastWordEndMs int `json:"last_word_end_ms,omitempty"`
+	// Per-word transcript with timings and confidence, when the provider supplies it.
+	Words []STTWord `json:"words,omitempty"`
+	// Languages detected in the turn.
+	Languages []string `json:"languages,omitempty"`
 }
 
 // AgentConnectedEvent is fired when: agent connected to provider
@@ -735,6 +949,72 @@ func ParseEvent(data []byte) (interface{}, error) {
 			return nil, err
 		}
 		return &e, nil
+	case EventLegStreamAdded:
+		var e LegStreamAddedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegStreamRemoved:
+		var e LegStreamRemovedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegStreamRejected:
+		var e LegStreamRejectedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegStreamFailed:
+		var e LegStreamFailedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegStreamRoomChanged:
+		var e LegStreamRoomChangedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegStreamRoleChanged:
+		var e LegStreamRoleChangedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSiprecSessionStarted:
+		var e SiprecSessionStartedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSiprecSessionEnded:
+		var e SiprecSessionEndedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSiprecMetadataUpdated:
+		var e SiprecMetadataUpdatedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSiprecParticipantJoined:
+		var e SiprecParticipantJoinedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSiprecParticipantLeft:
+		var e SiprecParticipantLeftEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
 	case EventDTMFReceived:
 		var e DTMFReceivedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
@@ -791,6 +1071,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventTTSError:
 		var e TTSErrorEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventTTSStaged:
+		var e TTSStagedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventTTSDiscarded:
+		var e TTSDiscardedEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
@@ -893,6 +1185,12 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventSTTText:
 		var e STTTextEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSTTTurn:
+		var e STTTurnEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

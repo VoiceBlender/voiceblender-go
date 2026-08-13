@@ -2,8 +2,8 @@
 // files into the library root:
 //
 //   - models.go    — Leg, Room, Webhook structs + LegType/LegState/WebhookEventType enums
-//   - requests.go  — all *Request and supporting types (PlaybackRequest excluded)
-//   - responses.go — all *Response types from the spec
+//   - requests.go  — every component schema not owned by another file below
+//   - responses.go — StatusResponse
 //   - events.go    — typed event structs from x-webhooks + ParseEvent dispatcher
 //   - legs.go      — Client methods for /legs endpoints
 //   - rooms.go     — Client methods for /rooms endpoints
@@ -133,6 +133,30 @@ func (op *orderedPaths) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// orderedSchemas unmarshals components.schemas while preserving document order,
+// so generated type declarations follow the order of the spec.
+type orderedSchemas struct {
+	keys []string
+	vals map[string]*Schema
+}
+
+func (os *orderedSchemas) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node for schemas, got %v", n.Kind)
+	}
+	os.vals = make(map[string]*Schema)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i].Value
+		var v Schema
+		if err := n.Content[i+1].Decode(&v); err != nil {
+			return fmt.Errorf("schema %q: %w", k, err)
+		}
+		os.keys = append(os.keys, k)
+		os.vals[k] = &v
+	}
+	return nil
+}
+
 // orderedWebhooks unmarshals x-webhooks while preserving document order.
 type orderedWebhooks struct {
 	keys []string
@@ -160,7 +184,7 @@ type openAPISpec struct {
 	Paths      orderedPaths    `yaml:"paths"`
 	XWebhooks  orderedWebhooks `yaml:"x-webhooks"`
 	Components struct {
-		Schemas map[string]*Schema `yaml:"schemas"`
+		Schemas orderedSchemas `yaml:"schemas"`
 	} `yaml:"components"`
 }
 
@@ -262,6 +286,79 @@ func refTail(ref string) (string, bool) {
 	return parts[len(parts)-1], true
 }
 
+// ── Reference collection ──────────────────────────────────────────────────────
+
+// collectRefs walks a schema tree and records every same-file $ref target name
+// it finds. Cross-file refs are skipped (refTail reports them as unresolvable).
+func collectRefs(s *Schema, out map[string]bool) {
+	if s == nil {
+		return
+	}
+	if s.Ref != "" {
+		if name, ok := refTail(s.Ref); ok {
+			out[name] = true
+		}
+	}
+	for _, k := range s.Properties.keys {
+		collectRefs(s.Properties.vals[k], out)
+	}
+	collectRefs(s.Items, out)
+	collectRefs(s.AdditionalProperties, out)
+	for _, a := range s.AllOf {
+		collectRefs(a, out)
+	}
+}
+
+// collectOpRefs records refs from an operation's request body and responses.
+func collectOpRefs(op *Operation, out map[string]bool) {
+	if op == nil {
+		return
+	}
+	if op.RequestBody != nil {
+		for _, media := range op.RequestBody.Content {
+			if media != nil {
+				collectRefs(media.Schema, out)
+			}
+		}
+	}
+	for _, resp := range op.Responses {
+		if resp == nil {
+			continue
+		}
+		for _, media := range resp.Content {
+			if media != nil {
+				collectRefs(media.Schema, out)
+			}
+		}
+	}
+}
+
+// collectPathItemRefs records refs from every operation on a path item.
+func collectPathItemRefs(item *PathItem, out map[string]bool) {
+	if item == nil {
+		return
+	}
+	for _, op := range []*Operation{item.Get, item.Post, item.Put, item.Patch, item.Delete} {
+		collectOpRefs(op, out)
+	}
+}
+
+// specRefs returns every schema name referenced anywhere in the spec: from
+// component schemas, path operations, and x-webhooks payloads.
+func specRefs(spec *openAPISpec) map[string]bool {
+	refs := map[string]bool{}
+	for _, name := range spec.Components.Schemas.keys {
+		collectRefs(spec.Components.Schemas.vals[name], refs)
+	}
+	for _, p := range spec.Paths.keys {
+		collectPathItemRefs(spec.Paths.vals[p], refs)
+	}
+	for _, w := range spec.XWebhooks.keys {
+		collectPathItemRefs(spec.XWebhooks.vals[w], refs)
+	}
+	return refs
+}
+
 // ── Naming helpers ────────────────────────────────────────────────────────────
 
 // abbrevs maps lowercase word segments to idiomatic Go uppercase abbreviations.
@@ -308,6 +405,10 @@ func deref(ref string) string {
 // typeRenames maps OpenAPI schema names to different Go type names.
 var typeRenames = map[string]string{
 	"RoomCreateRequest": "CreateRoomRequest",
+	// The Error schema is the body of every 4xx/5xx response; the
+	// hand-maintained errors.go already models it as APIError (same JSON
+	// fields, plus the status code), so refs resolve to that type.
+	"Error": "APIError",
 }
 
 // fieldNameOverrides: schemaName → propName → Go field name.
@@ -351,6 +452,36 @@ var fieldTypeOverrides = map[string]map[string]string{
 	},
 }
 
+// handWrittenTypes are Go types that live in the hand-maintained files
+// (playback.go, responses_extra.go, errors.go, client.go, events_stream.go).
+// A spec ref resolving to one of these is already satisfied, so no placeholder
+// alias is emitted for it.
+var handWrittenTypes = map[string]bool{
+	"PlaybackRequest":       true, // playback.go
+	"PlaybackResponse":      true, // responses_extra.go
+	"TTSResponse":           true, // responses_extra.go
+	"RecordingResponse":     true, // responses_extra.go
+	"AddLegResponse":        true, // responses_extra.go
+	"ICECandidatesResponse": true, // responses_extra.go
+	"WebRTCOfferResponse":   true, // responses_extra.go
+	"APIError":              true, // errors.go
+}
+
+// schemasEmittedElsewhere are component schemas that genRequests must not
+// emit because another pass (or a hand-maintained file) already declares the
+// Go type. Everything else in components.schemas is emitted verbatim, so a
+// schema added to the spec needs no change here.
+var schemasEmittedElsewhere = map[string]bool{
+	"Leg":              true, // models.go, with the client back-reference
+	"Room":             true, // models.go, with the client back-reference
+	"WebhookEventType": true, // models.go, as a string enum
+	"WebhookEvent":     true, // events.go, as the Event base struct
+	"StatusResponse":   true, // responses.go
+	"PlaybackRequest":  true, // hand-maintained playback.go (custom MarshalJSON)
+	"ICECandidateInit": true, // hardcoded below to add usernameFragment
+	"Error":            true, // errors.go declares APIError for the error body
+}
+
 // enumTypeRefs: schemaName → propName → Go enum type name.
 // When a struct property carries an inline enum, its Go field uses this type.
 var enumTypeRefs = map[string]map[string]string{
@@ -382,6 +513,20 @@ func goType(s *Schema) string {
 	if s.Ref != "" {
 		return goTypeName(deref(s.Ref))
 	}
+	// A $ref wrapped in allOf is the OpenAPI 3.0 idiom for "this ref, plus a
+	// description or a nullable marker" (a sibling of $ref is otherwise
+	// ignored). Resolve to the referenced type, as a pointer when nullable so
+	// callers can tell null from the zero value.
+	for _, part := range s.AllOf {
+		if part.Ref == "" {
+			continue
+		}
+		t := goTypeName(deref(part.Ref))
+		if s.Nullable {
+			t = "*" + t
+		}
+		return t
+	}
 	switch s.Type {
 	case "string":
 		return "string"
@@ -409,6 +554,39 @@ func goType(s *Schema) string {
 
 const generatedHeader = "// Code generated by cmd/generate from openapi.yaml. DO NOT EDIT.\n\n"
 
+// composeFile assembles a generated file from a header, the package clause,
+// and body. Only the imports the body actually references are emitted — which
+// of them are needed depends on the spec (models.go, for one, imports
+// encoding/json only when the spec has a dangling $ref to alias), and an
+// unused import does not compile.
+func composeFile(header string, body []byte, imports ...string) []byte {
+	var b bytes.Buffer
+	b.WriteString(header)
+	b.WriteString("package voiceblender\n\n")
+
+	var used []string
+	for _, imp := range imports {
+		pkg := imp[strings.LastIndex(imp, "/")+1:]
+		if bytes.Contains(body, []byte(pkg+".")) {
+			used = append(used, imp)
+		}
+	}
+	switch len(used) {
+	case 0:
+	case 1:
+		fmt.Fprintf(&b, "import %q\n\n", used[0])
+	default:
+		b.WriteString("import (\n")
+		for _, imp := range used {
+			fmt.Fprintf(&b, "\t%q\n", imp)
+		}
+		b.WriteString(")\n\n")
+	}
+
+	b.Write(body)
+	return b.Bytes()
+}
+
 // ensurePeriod appends a period to s if it does not already end with one.
 func ensurePeriod(s string) string {
 	s = strings.TrimSpace(s)
@@ -421,23 +599,43 @@ func ensurePeriod(s string) string {
 	return s
 }
 
-// descFromName derives a fallback godoc description from a Go type name by
-// splitting on uppercase boundaries: "CreateLegRequest" → "is a create leg request."
-func descFromName(name string) string {
+// splitWords splits a Go type name into words, keeping acronym runs together:
+// "CreateLegRequest" → [Create Leg Request], "SIPRECStreamView" → [SIPREC
+// Stream View]. A word starts at an uppercase letter that either follows a
+// lowercase one or begins a new word after an acronym (upper, upper, lower).
+func splitWords(name string) []string {
 	var words []string
 	start := 0
 	for i := 1; i < len(name); i++ {
-		if name[i] >= 'A' && name[i] <= 'Z' {
+		if name[i] < 'A' || name[i] > 'Z' {
+			continue
+		}
+		prev := name[i-1]
+		afterLower := prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
+		endOfAcronym := prev >= 'A' && prev <= 'Z' &&
+			i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z'
+		if afterLower || endOfAcronym {
 			words = append(words, name[start:i])
 			start = i
 		}
 	}
-	words = append(words, name[start:])
-	lower := make([]string, len(words))
+	return append(words, name[start:])
+}
+
+// descFromName derives a fallback godoc description from a Go type name:
+// "CreateLegRequest" → "is a create leg request." Acronyms keep their case, so
+// "SIPRECStreamView" → "is a SIPREC stream view."
+func descFromName(name string) string {
+	words := splitWords(name)
+	out := make([]string, len(words))
 	for i, w := range words {
-		lower[i] = strings.ToLower(w)
+		if lower := strings.ToLower(w); lower != w && strings.ToUpper(w) == w {
+			out[i] = w // all-caps acronym: leave as is
+		} else {
+			out[i] = strings.ToLower(w)
+		}
 	}
-	return "is a " + strings.Join(lower, " ") + "."
+	return "is a " + strings.Join(out, " ") + "."
 }
 
 func genEnum(b *bytes.Buffer, typeName, constPrefix, description string, values []string) {
@@ -461,6 +659,30 @@ func genStruct(b *bytes.Buffer, schemaName string, s *Schema, extraFields ...str
 		reqSet[r] = true
 	}
 
+	// allOf composition: $ref parts become embedded structs, inline parts have
+	// their properties merged in after the schema's own.
+	type propRef struct {
+		name string
+		s    *Schema
+	}
+	props := make([]propRef, 0, len(s.Properties.keys))
+	for _, p := range s.Properties.keys {
+		props = append(props, propRef{p, s.Properties.vals[p]})
+	}
+	var embeds []string
+	for _, part := range s.AllOf {
+		if part.Ref != "" {
+			embeds = append(embeds, goTypeName(deref(part.Ref)))
+			continue
+		}
+		for _, p := range part.Properties.keys {
+			props = append(props, propRef{p, part.Properties.vals[p]})
+		}
+		for _, r := range part.Required {
+			reqSet[r] = true
+		}
+	}
+
 	if s.Description != "" {
 		fmt.Fprintf(b, "// %s %s\n", typeName, ensurePeriod(s.Description))
 	} else {
@@ -468,8 +690,12 @@ func genStruct(b *bytes.Buffer, schemaName string, s *Schema, extraFields ...str
 	}
 	fmt.Fprintf(b, "type %s struct {\n", typeName)
 
-	for _, prop := range s.Properties.keys {
-		pSchema := s.Properties.vals[prop]
+	for _, e := range embeds {
+		fmt.Fprintf(b, "\t%s\n", e)
+	}
+
+	for _, p := range props {
+		prop, pSchema := p.name, p.s
 
 		// Field name.
 		fieldName := toCamel(prop)
@@ -514,14 +740,12 @@ func genStruct(b *bytes.Buffer, schemaName string, s *Schema, extraFields ...str
 
 // ── File generators ───────────────────────────────────────────────────────────
 
-// genModels emits models.go. asyncDefined holds the names of schemas defined in
-// asyncapi.yaml; placeholder aliases are suppressed for those because genVSI
-// emits a real struct for them in vsi.go (avoiding a redeclaration).
-func genModels(schemas map[string]*Schema, asyncDefined map[string]bool) []byte {
+// genModels emits models.go. placeholders holds the Go names of types the spec
+// references but never defines (computed in main from specRefs); each gets a
+// json.RawMessage alias so a dangling $ref degrades to "decode it yourself"
+// instead of breaking the build.
+func genModels(schemas map[string]*Schema, placeholders []string) []byte {
 	var b bytes.Buffer
-	b.WriteString(generatedHeader)
-	b.WriteString("package voiceblender\n\n")
-	b.WriteString("import \"encoding/json\"\n\n")
 
 	// LegType — derived from Leg.properties.type.enum
 	genEnum(&b, "LegType", "LegType", "identifies the type of a voice leg.",
@@ -537,16 +761,8 @@ func genModels(schemas map[string]*Schema, asyncDefined map[string]bool) []byte 
 	genEnum(&b, "WebhookEventType", "Event", "is the type of a webhook event.",
 		schemas["WebhookEventType"].Enum)
 
-	// Type alias for schemas referenced but not fully defined in the spec.
-	// Skip names defined in asyncapi.yaml: genVSI emits a real struct for those
-	// in vsi.go, so emitting a placeholder here would redeclare the type.
-	for _, name := range []string{"ChannelInfo", "OfferedCodec"} {
-		if _, ok := schemas[name]; ok {
-			continue
-		}
-		if asyncDefined[name] {
-			continue
-		}
+	// Type aliases for schemas referenced but not defined in the spec.
+	for _, name := range placeholders {
 		fmt.Fprintf(&b, "// %s is referenced in the spec but not fully defined; use json.RawMessage to decode.\n", name)
 		fmt.Fprintf(&b, "type %s = json.RawMessage\n\n", name)
 	}
@@ -564,62 +780,22 @@ func genModels(schemas map[string]*Schema, asyncDefined map[string]bool) []byte 
 		genStruct(&b, name, s, "client *Client")
 	}
 
-	return fmtGo(b.Bytes())
+	return fmtGo(composeFile(generatedHeader, b.Bytes(), "encoding/json"))
 }
 
-func genRequests(schemas map[string]*Schema) []byte {
+// genRequests emits requests.go: every schema in components.schemas, in spec
+// declaration order, except the ones another pass owns (schemasEmittedElsewhere).
+// The policy is deliberately "emit everything, skip a known few" — a whitelist
+// would silently omit schemas added to the spec, leaving the generated client
+// referencing types that were never declared.
+func genRequests(schemas map[string]*Schema, order []string) []byte {
 	var b bytes.Buffer
-	b.WriteString(generatedHeader)
-	b.WriteString("package voiceblender\n\n")
-	b.WriteString("import \"encoding/json\"\n\n")
 
-	// SIPAuth is an inline schema within CreateLegRequest.auth; emit it first.
-	b.WriteString("// SIPAuth holds SIP digest authentication credentials.\n")
-	b.WriteString("type SIPAuth struct {\n")
-	b.WriteString("\tUsername string `json:\"username\"`\n")
-	b.WriteString("\tPassword string `json:\"password\"`\n")
-	b.WriteString("}\n\n")
-
-	// Request schemas in declaration order. PlaybackRequest is excluded — it
-	// lives in the hand-maintained playback.go (custom MarshalJSON).
-	// ICECandidateInit is excluded below (hardcoded to add usernameFragment,
-	// a standard WebRTC field absent from the spec).
-	requestSchemas := []string{
-		"CreateLegRequest",
-		"AnswerLegRequest",
-		"EarlyMediaLegRequest",
-		"ChallengeRequest",
-		"DeleteLegRequest",
-		"TransferRequest",
-		"TransferProgressRequest",
-		"TransferCompleteRequest",
-		"TransferDeclineRequest",
-		"DTMFRequest",
-		"RTTRequest",
-		"VolumeRequest",
-		"TTSRequest",
-		"STTRequest",
-		"DeepgramAgentRequest",
-		"ElevenLabsAgentRequest",
-		"PipecatAgentRequest",
-		"VAPIAgentRequest",
-		"AgentMessageRequest",
-		"AMDParams",
-		"RecordingRequest",
-		"WebRTCOfferRequest",
-		"RoomCreateRequest",
-		"AddLegRequest",
-		"SetLegRoleRequest",
-		"RoomRoutingRequest",
-		"RoomRoutingUpdateRequest",
-	}
-	for _, name := range requestSchemas {
-		s, ok := schemas[name]
-		if !ok {
-			log.Printf("warning: schema %q not found, skipping", name)
+	for _, name := range order {
+		if schemasEmittedElsewhere[name] {
 			continue
 		}
-		genStruct(&b, name, s)
+		genStruct(&b, name, schemas[name])
 	}
 
 	// ICECandidateInit — hardcoded to include usernameFragment, a standard
@@ -632,13 +808,11 @@ func genRequests(schemas map[string]*Schema) []byte {
 	b.WriteString("\tUsernameFragment *string `json:\"usernameFragment,omitempty\"`\n")
 	b.WriteString("}\n\n")
 
-	return fmtGo(b.Bytes())
+	return fmtGo(composeFile(generatedHeader, b.Bytes(), "encoding/json"))
 }
 
 func genResponses(schemas map[string]*Schema) []byte {
 	var b bytes.Buffer
-	b.WriteString(generatedHeader)
-	b.WriteString("package voiceblender\n\n")
 
 	responseSchemas := []string{
 		"StatusResponse",
@@ -652,7 +826,7 @@ func genResponses(schemas map[string]*Schema) []byte {
 		genStruct(&b, name, s)
 	}
 
-	return fmtGo(b.Bytes())
+	return fmtGo(composeFile(generatedHeader, b.Bytes()))
 }
 
 // ── Event type generation from x-webhooks ────────────────────────────────────
@@ -711,6 +885,21 @@ func extractWebhooks(wh orderedWebhooks) []webhookEventInfo {
 	return events
 }
 
+// eventFieldName returns the Go field name for an event payload property.
+// Every event struct embeds the base Event, so a property whose camelised name
+// is "Event" (stt.turn carries a turn-boundary field literally named "event")
+// would redeclare the embedded field. Qualify it with the last segment of the
+// event name instead: stt.turn's "event" → TurnEvent. The JSON tag is
+// unaffected, so the wire format does not change.
+func eventFieldName(eventName, prop string) string {
+	name := toCamel(prop)
+	if name != "Event" {
+		return name
+	}
+	segs := strings.Split(eventName, ".")
+	return toCamel(segs[len(segs)-1]) + name
+}
+
 // genNestedStruct generates an inline struct type string for an object property.
 func genNestedStruct(s *Schema) string {
 	var b strings.Builder
@@ -746,13 +935,6 @@ func genEvents(webhooks orderedWebhooks) []byte {
 	}
 
 	var b bytes.Buffer
-	b.WriteString(generatedHeader)
-	b.WriteString("package voiceblender\n\n")
-	b.WriteString("import (\n")
-	b.WriteString("\t\"encoding/json\"\n")
-	b.WriteString("\t\"fmt\"\n")
-	b.WriteString("\t\"time\"\n")
-	b.WriteString(")\n\n")
 
 	// Base Event struct matching WebhookEvent schema.
 	b.WriteString("// Event is the base envelope for all webhook/WebSocket events.\n")
@@ -773,7 +955,7 @@ func genEvents(webhooks orderedWebhooks) []byte {
 
 		for _, prop := range ev.props.keys {
 			ps := ev.props.vals[prop]
-			fieldName := toCamel(prop)
+			fieldName := eventFieldName(ev.eventName, prop)
 			fieldType := goType(ps)
 
 			// Handle nested object properties with known structure.
@@ -823,7 +1005,7 @@ func genEvents(webhooks orderedWebhooks) []byte {
 	b.WriteString("\t}\n")
 	b.WriteString("}\n")
 
-	return fmtGo(b.Bytes())
+	return fmtGo(composeFile(generatedHeader, b.Bytes(), "encoding/json", "fmt", "time"))
 }
 
 // ── Client method generation from paths ──────────────────────────────────────
@@ -1153,12 +1335,6 @@ func goMethodName(opID string) string {
 // returned object can be used to make further API calls.
 func genClientFile(ops []opInfo) []byte {
 	var b bytes.Buffer
-	b.WriteString(generatedHeader)
-	b.WriteString("package voiceblender\n\n")
-	b.WriteString("import (\n")
-	b.WriteString("\t\"context\"\n")
-	b.WriteString("\t\"net/http\"\n")
-	b.WriteString(")\n\n")
 
 	for _, op := range ops {
 		methodName := goMethodName(op.operationID)
@@ -1268,7 +1444,7 @@ func genClientFile(ops []opInfo) []byte {
 		b.WriteString("}\n\n")
 	}
 
-	return fmtGo(b.Bytes())
+	return fmtGo(composeFile(generatedHeader, b.Bytes(), "context", "net/http"))
 }
 
 // ── AsyncAPI / VSI generation ─────────────────────────────────────────────────
@@ -1346,6 +1522,11 @@ func resolveRefType(ref string, asyncSchemas, openSchemas map[string]*Schema) st
 				}
 			}
 		}
+		// Falling back to json.RawMessage keeps generation working, but it
+		// means a VSI command lost its typed payload or result — usually
+		// because asyncapi.yaml refs a schema name openapi.yaml doesn't
+		// publish. Say so rather than degrading silently.
+		log.Printf("warning: %s does not resolve to a schema in openapi.yaml; falling back to json.RawMessage", ref)
 		return "json.RawMessage"
 	}
 	if _, ok := asyncSchemas[name]; ok {
@@ -1405,28 +1586,22 @@ func resolveOpMessage(spec *asyncAPISpec, ref string) *aaMessage {
 	return nil
 }
 
-// genVSI emits the vsi.go file given a parsed AsyncAPI spec and the openapi
-// schemas (for cross-file ref resolution).
-func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema) []byte {
+// genVSI emits the vsi.go file given a parsed AsyncAPI spec, the openapi
+// schemas (for cross-file ref resolution), and the set of Go type names
+// already declared from openapi.yaml (so a schema present in both specs is
+// emitted once, from openapi).
+func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema, openEmitted map[string]bool) []byte {
 	var b bytes.Buffer
-	b.WriteString(vsiFileHeader)
-	b.WriteString("package voiceblender\n\n")
-	b.WriteString("import (\n")
-	b.WriteString("\t\"context\"\n")
-	b.WriteString("\t\"encoding/json\"\n")
-	b.WriteString(")\n\n")
 
 	asyncSchemas := spec.Components.Schemas
 
-	// Schemas declared in both asyncapi and openapi: emitted once in
-	// requests.go (or hardcoded there for ICECandidateInit) and skipped here
-	// so vsi.go references the existing type instead of redeclaring it.
-	// WebRTCOfferResult / WebRTCCandidatesResult are async-only as far as Go
-	// emission goes — the openapi spec mentions them but no Go file emits
-	// them from there, so they must still be emitted in vsi.go.
-	vsiSkipSchemas := map[string]bool{
-		"ICECandidateInit":   true,
-		"WebRTCOfferRequest": true,
+	// A schema declared in both specs is emitted once, from openapi (in
+	// requests.go / models.go / the hardcoded ICECandidateInit block), and
+	// skipped here so vsi.go references the existing type instead of
+	// redeclaring it. Comparison is on the final Go type name, since asyncapi
+	// names are lowerCamelCase and some openapi names are renamed.
+	vsiSkip := func(name string) bool {
+		return openEmitted[goTypeName(name)] || handWrittenTypes[goTypeName(name)]
 	}
 
 	// 1. Emit Go structs for every payload / result schema in deterministic
@@ -1444,7 +1619,7 @@ func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema) []byte {
 	})
 	b.WriteString("// ── VSI payload / result schemas ──────────────────────────────────────────\n\n")
 	for _, ns := range namedSchemas {
-		if vsiSkipSchemas[ns.raw] {
+		if vsiSkip(ns.raw) {
 			continue
 		}
 		genStruct(&b, ns.raw, ns.s)
@@ -1519,7 +1694,7 @@ func genVSI(spec *asyncAPISpec, openSchemas map[string]*Schema) []byte {
 		b.WriteString("}\n\n")
 	}
 
-	return fmtGo(b.Bytes())
+	return fmtGo(composeFile(vsiFileHeader, b.Bytes(), "context", "encoding/json"))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1564,11 +1739,12 @@ func main() {
 		log.Fatalf("parse openapi.yaml: %v", err)
 	}
 
-	schemas := spec.Components.Schemas
+	schemas := spec.Components.Schemas.vals
+	schemaOrder := spec.Components.Schemas.keys
 
 	// Parse asyncapi.yaml up front (if provided) so its schema names are known
-	// before generating the type files. genModels suppresses placeholder
-	// aliases for names defined here, since genVSI emits a real struct for them.
+	// before generating the type files: genVSI emits a real struct for those,
+	// so they need neither a placeholder alias nor a second declaration.
 	var aaSpec *asyncAPISpec
 	asyncDefined := map[string]bool{}
 	if *asyncapi != "" {
@@ -1582,13 +1758,37 @@ func main() {
 		}
 		aaSpec = &s
 		for name := range aaSpec.Components.Schemas {
-			asyncDefined[name] = true
+			asyncDefined[goTypeName(name)] = true
 		}
 	}
 
+	// Every Go type name declared from openapi.yaml: the schemas genRequests
+	// emits plus the ones other passes own. genVSI skips these, and a $ref to
+	// one of them needs no placeholder.
+	openEmitted := map[string]bool{}
+	for _, name := range schemaOrder {
+		openEmitted[goTypeName(name)] = true
+	}
+
+	// Schema names the spec references but never defines (a dangling $ref, e.g.
+	// a webhook payload pointing at a type nobody wrote). Without a declaration
+	// the generated code would not compile, so alias each to json.RawMessage.
+	var placeholders []string
+	for name := range specRefs(&spec) {
+		goName := goTypeName(name)
+		if openEmitted[goName] || asyncDefined[goName] || handWrittenTypes[goName] {
+			continue
+		}
+		placeholders = append(placeholders, goName)
+	}
+	sort.Strings(placeholders)
+	for _, name := range placeholders {
+		log.Printf("warning: %s is referenced but not defined in the spec; emitting a json.RawMessage alias", name)
+	}
+
 	// Generate type files.
-	write(filepath.Join(*out, "models.go"), genModels(schemas, asyncDefined))
-	write(filepath.Join(*out, "requests.go"), genRequests(schemas))
+	write(filepath.Join(*out, "models.go"), genModels(schemas, placeholders))
+	write(filepath.Join(*out, "requests.go"), genRequests(schemas, schemaOrder))
 	write(filepath.Join(*out, "responses.go"), genResponses(schemas))
 	if evData := genEvents(spec.XWebhooks); evData != nil {
 		write(filepath.Join(*out, "events.go"), evData)
@@ -1612,6 +1812,6 @@ func main() {
 
 	// Generate VSI command file from asyncapi.yaml.
 	if aaSpec != nil {
-		write(filepath.Join(*out, "vsi.go"), genVSI(aaSpec, schemas))
+		write(filepath.Join(*out, "vsi.go"), genVSI(aaSpec, schemas, openEmitted))
 	}
 }

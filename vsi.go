@@ -2,10 +2,7 @@
 
 package voiceblender
 
-import (
-	"context"
-	"encoding/json"
-)
+import "context"
 
 // ── VSI payload / result schemas ──────────────────────────────────────────
 
@@ -90,7 +87,7 @@ type AgentStopResult struct {
 	Status string `json:"status"`
 }
 
-// AgentVAPIPayload is a agent v a p i payload.
+// AgentVAPIPayload is a agent VAPI payload.
 type AgentVAPIPayload struct {
 	ID             string            `json:"id"`
 	AssistantID    string            `json:"assistant_id"`
@@ -101,9 +98,10 @@ type AgentVAPIPayload struct {
 
 // AnswerLegPayload is a answer leg payload.
 type AnswerLegPayload struct {
-	ID              string `json:"id"`
-	SpeechDetection bool   `json:"speech_detection,omitempty"`
-	Codec           string `json:"codec,omitempty"`
+	ID              string            `json:"id"`
+	SpeechDetection bool              `json:"speech_detection,omitempty"`
+	Codec           string            `json:"codec,omitempty"`
+	Streams         []AnswerLegStream `json:"streams,omitempty"`
 }
 
 // BridgeCreatePayload is a bridge create payload.
@@ -132,14 +130,6 @@ type BridgeUpdatePayload struct {
 	Direction string `json:"direction"`
 }
 
-// BridgeView is a bridge view.
-type BridgeView struct {
-	ID         string `json:"id"`
-	RoomID     string `json:"room_id"`
-	Direction  string `json:"direction"`
-	SampleRate int    `json:"sample_rate"`
-}
-
 // ChallengeLegPayload is a challenge leg payload.
 type ChallengeLegPayload struct {
 	ID         string   `json:"id"`
@@ -164,13 +154,6 @@ type ChallengeRegistrationPayload struct {
 	MaxExpires int      `json:"max_expires,omitempty"`
 }
 
-// ChannelInfo is a channel info.
-type ChannelInfo struct {
-	Channel int `json:"channel"`
-	StartMs int `json:"start_ms"`
-	EndMs   int `json:"end_ms"`
-}
-
 // CompleteTransferPayload is a complete transfer payload.
 type CompleteTransferPayload struct {
 	ID         string `json:"id"`
@@ -179,22 +162,7 @@ type CompleteTransferPayload struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// CreateTrunkRequest is a create trunk request.
-type CreateTrunkRequest struct {
-	Type        string               `json:"type"`
-	AppID       string               `json:"app_id,omitempty"`
-	SIPRegister SIPRegisterTrunkSpec `json:"sip_register,omitempty"`
-	IpIp        IPIPTrunkSpec        `json:"ip_ip,omitempty"`
-}
-
-// CreateTrunkResponse is a create trunk response.
-type CreateTrunkResponse struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
-}
-
-// DTMFPayload is a d t m f payload.
+// DTMFPayload is a DTMF payload.
 type DTMFPayload struct {
 	ID     string `json:"id"`
 	Digits string `json:"digits"`
@@ -225,22 +193,12 @@ type EarlyMediaPayload struct {
 	Codec string `json:"codec,omitempty"`
 }
 
-// IDPayload is a i d payload.
+// IDPayload is a ID payload.
 type IDPayload struct {
 	ID string `json:"id"`
 }
 
-// IPIPTrunkSpec is a i p i p trunk spec.
-type IPIPTrunkSpec struct {
-	PeerURI string `json:"peer_uri,omitempty"`
-}
-
-// IPIPTrunkView is a i p i p trunk view.
-type IPIPTrunkView struct {
-	PeerURI string `json:"peer_uri,omitempty"`
-}
-
-// LegAMDStartPayload is a leg a m d start payload.
+// LegAMDStartPayload is a leg AMD start payload.
 type LegAMDStartPayload struct {
 	ID                    string `json:"id"`
 	InitialSilenceTimeout int    `json:"initial_silence_timeout,omitempty"`
@@ -249,6 +207,38 @@ type LegAMDStartPayload struct {
 	TotalAnalysisTime     int    `json:"total_analysis_time,omitempty"`
 	MinimumWordLength     int    `json:"minimum_word_length,omitempty"`
 	BeepTimeout           int    `json:"beep_timeout,omitempty"`
+}
+
+// LegStreamAddPayload is a leg stream add payload.
+type LegStreamAddPayload struct {
+	LegID     string `json:"leg_id"`
+	Direction string `json:"direction,omitempty"`
+	Lang      string `json:"lang,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Label     string `json:"label,omitempty"`
+	RoomID    string `json:"room_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+}
+
+// LegStreamPayload is a leg stream payload.
+type LegStreamPayload struct {
+	LegID    string `json:"leg_id"`
+	StreamID string `json:"stream_id"`
+}
+
+// LegStreamRoomPayload is a leg stream room payload.
+type LegStreamRoomPayload struct {
+	LegID    string `json:"leg_id"`
+	StreamID string `json:"stream_id"`
+	RoomID   string `json:"room_id"`
+	Role     string `json:"role,omitempty"`
+}
+
+// LegStreamUpdatePayload is a leg stream update payload.
+type LegStreamUpdatePayload struct {
+	LegID    string `json:"leg_id"`
+	StreamID string `json:"stream_id"`
+	Role     string `json:"role,omitempty"`
 }
 
 // PlaybackStartPayload is a playback start payload.
@@ -292,7 +282,7 @@ type ProgressTransferPayload struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// RTTPayload is a r t t payload.
+// RTTPayload is a RTT payload.
 type RTTPayload struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
@@ -300,15 +290,18 @@ type RTTPayload struct {
 
 // RecordStartPayload is a record start payload.
 type RecordStartPayload struct {
-	ID           string `json:"id"`
-	Storage      string `json:"storage"`
-	MultiChannel bool   `json:"multi_channel"`
-	S3Bucket     string `json:"s3_bucket"`
-	S3Region     string `json:"s3_region"`
-	S3Endpoint   string `json:"s3_endpoint"`
-	S3Prefix     string `json:"s3_prefix"`
-	S3AccessKey  string `json:"s3_access_key"`
-	S3SecretKey  string `json:"s3_secret_key"`
+	ID                  string `json:"id"`
+	Storage             string `json:"storage"`
+	MultiChannel        bool   `json:"multi_channel"`
+	S3Bucket            string `json:"s3_bucket"`
+	S3Region            string `json:"s3_region"`
+	S3Endpoint          string `json:"s3_endpoint"`
+	S3Prefix            string `json:"s3_prefix"`
+	S3AccessKey         string `json:"s3_access_key"`
+	S3SecretKey         string `json:"s3_secret_key"`
+	GcsBucket           string `json:"gcs_bucket"`
+	GcsObjectNamePrefix string `json:"gcs_object_name_prefix"`
+	Filename            string `json:"filename"`
 }
 
 // RecordingPauseResumeResult is a recording pause resume result.
@@ -334,26 +327,7 @@ type RecordingStopRoomResult struct {
 	File             string                 `json:"file"`
 	MultiChannelFile string                 `json:"multi_channel_file,omitempty"`
 	Channels         map[string]ChannelInfo `json:"channels,omitempty"`
-}
-
-// RegistrationView is a registration view.
-type RegistrationView struct {
-	Aor                   string `json:"aor"`
-	Contact               string `json:"contact"`
-	Socket                string `json:"socket"`
-	Transport             string `json:"transport"`
-	UserAgent             string `json:"user_agent,omitempty"`
-	CallID                string `json:"call_id,omitempty"`
-	AppID                 string `json:"app_id,omitempty"`
-	CreatedAt             string `json:"created_at"`
-	LastRefresh           string `json:"last_refresh"`
-	ExpiresAt             string `json:"expires_at"`
-	GrantedExpiresSeconds int    `json:"granted_expires_seconds"`
-}
-
-// RegistrationsResponse is a registrations response.
-type RegistrationsResponse struct {
-	Bindings []RegistrationView `json:"bindings"`
+	OmittedLegs      []string               `json:"omitted_legs,omitempty"`
 }
 
 // RejectRegistrationPayload is a reject registration payload.
@@ -381,65 +355,54 @@ type RoomRoutingUpdatePayload struct {
 	Updates []RoutingRowUpdate `json:"updates"`
 }
 
-// RoomRoutingView is a room routing view.
-type RoomRoutingView struct {
-	Matrix map[string][]string `json:"matrix"`
+// RoomSIPRECStartPayload is a room SIPREC start payload.
+type RoomSIPRECStartPayload struct {
+	ID           string            `json:"id"`
+	SrsURI       string            `json:"srs_uri"`
+	LegIds       []string          `json:"leg_ids,omitempty"`
+	SessionID    string            `json:"session_id,omitempty"`
+	AppID        string            `json:"app_id,omitempty"`
+	AuthUsername string            `json:"auth_username,omitempty"`
+	AuthPassword string            `json:"auth_password,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
 }
 
-// RoutingRowUpdate is a routing row update.
-type RoutingRowUpdate struct {
-	ListenerRole string   `json:"listener_role"`
-	Sources      []string `json:"sources"`
+// STTFinalizeResult is a STT finalize result.
+type STTFinalizeResult struct {
+	Status string `json:"status"`
 }
 
-// SIPRegisterTrunkSpec is a s i p register trunk spec.
-type SIPRegisterTrunkSpec struct {
-	RegistrarURI   string `json:"registrar_uri"`
-	Aor            string `json:"aor"`
-	Username       string `json:"username,omitempty"`
-	Password       string `json:"password"`
-	ContactUser    string `json:"contact_user,omitempty"`
-	ExpiresSeconds int    `json:"expires_seconds,omitempty"`
-}
-
-// SIPRegisterTrunkView is a s i p register trunk view.
-type SIPRegisterTrunkView struct {
-	RegistrarURI            string `json:"registrar_uri"`
-	Aor                     string `json:"aor"`
-	Username                string `json:"username,omitempty"`
-	ContactURI              string `json:"contact_uri,omitempty"`
-	RequestedExpiresSeconds int    `json:"requested_expires_seconds"`
-	GrantedExpiresSeconds   int    `json:"granted_expires_seconds,omitempty"`
-	LastRegisteredAt        string `json:"last_registered_at,omitempty"`
-	NextRefreshAt           string `json:"next_refresh_at,omitempty"`
-	CallID                  string `json:"call_id,omitempty"`
-	Cseq                    int    `json:"cseq,omitempty"`
-	SourceAddress           string `json:"source_address,omitempty"`
-}
-
-// STTStartLegResult is a s t t start leg result.
+// STTStartLegResult is a STT start leg result.
 type STTStartLegResult struct {
 	Status string `json:"status"`
 	LegID  string `json:"leg_id"`
 }
 
-// STTStartPayload is a s t t start payload.
+// STTStartPayload is a STT start payload.
 type STTStartPayload struct {
-	ID       string `json:"id"`
-	Language string `json:"language"`
-	Partial  bool   `json:"partial"`
-	Provider string `json:"provider,omitempty"`
-	APIKey   string `json:"api_key,omitempty"`
+	ID                string   `json:"id"`
+	Language          string   `json:"language"`
+	Partial           bool     `json:"partial"`
+	Provider          string   `json:"provider,omitempty"`
+	APIKey            string   `json:"api_key,omitempty"`
+	Model             string   `json:"model,omitempty"`
+	Keyterms          []string `json:"keyterms,omitempty"`
+	Endpointing       int      `json:"endpointing,omitempty"`
+	UtteranceEndMs    int      `json:"utterance_end_ms,omitempty"`
+	EagerEotThreshold float64  `json:"eager_eot_threshold,omitempty"`
+	EotThreshold      float64  `json:"eot_threshold,omitempty"`
+	EotTimeoutMs      int      `json:"eot_timeout_ms,omitempty"`
+	LanguageHints     []string `json:"language_hints,omitempty"`
 }
 
-// STTStartRoomResult is a s t t start room result.
+// STTStartRoomResult is a STT start room result.
 type STTStartRoomResult struct {
 	Status string   `json:"status"`
 	RoomID string   `json:"room_id"`
 	LegIds []string `json:"leg_ids"`
 }
 
-// STTStopResult is a s t t stop result.
+// STTStopResult is a STT stop result.
 type STTStopResult struct {
 	Status string `json:"status"`
 }
@@ -450,7 +413,12 @@ type SetLegRolePayload struct {
 	Role  string `json:"role"`
 }
 
-// TTSStartPayload is a t t s start payload.
+// TTSDiscardResult is a TTS discard result.
+type TTSDiscardResult struct {
+	Status string `json:"status"`
+}
+
+// TTSStartPayload is a TTS start payload.
 type TTSStartPayload struct {
 	ID       string `json:"id"`
 	Text     string `json:"text"`
@@ -463,10 +431,16 @@ type TTSStartPayload struct {
 	APIKey   string `json:"api_key,omitempty"`
 }
 
-// TTSStartResult is a t t s start result.
+// TTSStartResult is a TTS start result.
 type TTSStartResult struct {
 	TTSID  string `json:"tts_id"`
 	Status string `json:"status"`
+}
+
+// TTSTargetPayload is a TTS target payload.
+type TTSTargetPayload struct {
+	ID    string `json:"id"`
+	TTSID string `json:"tts_id"`
 }
 
 // TransferLegPayload is a transfer leg payload.
@@ -481,63 +455,34 @@ type TransferLegResult struct {
 	Status string `json:"status"`
 }
 
-// TrunkView is a trunk view.
-type TrunkView struct {
-	ID          string               `json:"id"`
-	Type        string               `json:"type"`
-	AppID       string               `json:"app_id,omitempty"`
-	Status      string               `json:"status"`
-	LastError   string               `json:"last_error,omitempty"`
-	CreatedAt   string               `json:"created_at"`
-	SIPRegister SIPRegisterTrunkView `json:"sip_register,omitempty"`
-	IpIp        IPIPTrunkView        `json:"ip_ip,omitempty"`
-}
-
-// TrunksListResponse is a trunks list response.
-type TrunksListResponse struct {
-	Trunks []TrunkView `json:"trunks"`
-}
-
-// VSIStatusResponse is a v s i status response.
+// VSIStatusResponse is a VSI status response.
 type VSIStatusResponse struct {
 	Status string `json:"status"`
 }
 
-// VSIWebRTCAddCandidatePayload is a v s i web r t c add candidate payload.
+// VSIWebRTCAddCandidatePayload is a VSI web RTC add candidate payload.
 type VSIWebRTCAddCandidatePayload struct {
 	ID        string           `json:"id"`
 	Candidate ICECandidateInit `json:"candidate"`
 }
 
-// WebRTCCandidatesResult is a web r t c candidates result.
-type WebRTCCandidatesResult struct {
-	Candidates []ICECandidateInit `json:"candidates"`
-	Done       bool               `json:"done"`
-}
-
-// WebRTCOfferResult is a web r t c offer result.
-type WebRTCOfferResult struct {
-	LegID string `json:"leg_id"`
-	SDP   string `json:"sdp"`
-}
-
 // ── VSI command methods on *EventStream ───────────────────────────────────
 
 // ListLegs list all active legs
-func (s *EventStream) ListLegs(ctx context.Context) ([]json.RawMessage, error) {
-	var out []json.RawMessage
+func (s *EventStream) ListLegs(ctx context.Context) ([]Leg, error) {
+	var out []Leg
 	return out, s.call(ctx, "list_legs", nil, &out)
 }
 
 // GetLeg get a single leg by id
-func (s *EventStream) GetLeg(ctx context.Context, payload IDPayload) (json.RawMessage, error) {
-	var out json.RawMessage
+func (s *EventStream) GetLeg(ctx context.Context, payload IDPayload) (Leg, error) {
+	var out Leg
 	return out, s.call(ctx, "get_leg", payload, &out)
 }
 
 // CreateLeg originate an outbound leg
-func (s *EventStream) CreateLeg(ctx context.Context, payload CreateLegRequest) (json.RawMessage, error) {
-	var out json.RawMessage
+func (s *EventStream) CreateLeg(ctx context.Context, payload CreateLegRequest) (Leg, error) {
+	var out Leg
 	return out, s.call(ctx, "create_leg", payload, &out)
 }
 
@@ -644,20 +589,20 @@ func (s *EventStream) WebRTCGetCandidates(ctx context.Context, payload IDPayload
 }
 
 // ListRooms list all rooms
-func (s *EventStream) ListRooms(ctx context.Context) ([]json.RawMessage, error) {
-	var out []json.RawMessage
+func (s *EventStream) ListRooms(ctx context.Context) ([]Room, error) {
+	var out []Room
 	return out, s.call(ctx, "list_rooms", nil, &out)
 }
 
 // GetRoom get a single room by id
-func (s *EventStream) GetRoom(ctx context.Context, payload IDPayload) (json.RawMessage, error) {
-	var out json.RawMessage
+func (s *EventStream) GetRoom(ctx context.Context, payload IDPayload) (Room, error) {
+	var out Room
 	return out, s.call(ctx, "get_room", payload, &out)
 }
 
 // CreateRoom create a room
-func (s *EventStream) CreateRoom(ctx context.Context, payload CreateRoomRequest) (json.RawMessage, error) {
-	var out json.RawMessage
+func (s *EventStream) CreateRoom(ctx context.Context, payload CreateRoomRequest) (Room, error) {
+	var out Room
 	return out, s.call(ctx, "create_room", payload, &out)
 }
 
@@ -728,9 +673,69 @@ func (s *EventStream) RoomRoutingUpdate(ctx context.Context, payload RoomRouting
 }
 
 // SetLegRole change a leg's routing role (recomputes the room matrix if the leg is in a room)
-func (s *EventStream) SetLegRole(ctx context.Context, payload SetLegRolePayload) (json.RawMessage, error) {
-	var out json.RawMessage
+func (s *EventStream) SetLegRole(ctx context.Context, payload SetLegRolePayload) (Leg, error) {
+	var out Leg
 	return out, s.call(ctx, "set_leg_role", payload, &out)
+}
+
+// LegStreamList list a SIP leg's negotiated audio streams
+func (s *EventStream) LegStreamList(ctx context.Context, payload IDPayload) ([]LegStreamView, error) {
+	var out []LegStreamView
+	return out, s.call(ctx, "leg_stream_list", payload, &out)
+}
+
+// LegStreamGet get one of a SIP leg's audio streams
+func (s *EventStream) LegStreamGet(ctx context.Context, payload LegStreamPayload) (LegStreamView, error) {
+	var out LegStreamView
+	return out, s.call(ctx, "leg_stream_get", payload, &out)
+}
+
+// LegStreamAdd negotiate an additional m=audio section on a live dialog via re-INVITE
+func (s *EventStream) LegStreamAdd(ctx context.Context, payload LegStreamAddPayload) (LegStreamView, error) {
+	var out LegStreamView
+	return out, s.call(ctx, "leg_stream_add", payload, &out)
+}
+
+// LegStreamUpdate change one of a leg's audio streams' routing role in place
+func (s *EventStream) LegStreamUpdate(ctx context.Context, payload LegStreamUpdatePayload) (LegStreamView, error) {
+	var out LegStreamView
+	return out, s.call(ctx, "leg_stream_update", payload, &out)
+}
+
+// LegStreamRemove disable one of a leg's audio streams with a port-0 re-INVITE
+func (s *EventStream) LegStreamRemove(ctx context.Context, payload LegStreamPayload) (VSIStatusResponse, error) {
+	var out VSIStatusResponse
+	return out, s.call(ctx, "leg_stream_remove", payload, &out)
+}
+
+// LegStreamAttachRoom mix one of a leg's audio streams into a room (may differ from the leg's own room)
+func (s *EventStream) LegStreamAttachRoom(ctx context.Context, payload LegStreamRoomPayload) (LegStreamView, error) {
+	var out LegStreamView
+	return out, s.call(ctx, "leg_stream_attach_room", payload, &out)
+}
+
+// LegStreamDetachRoom remove one of a leg's audio streams from whichever room mixes it
+func (s *EventStream) LegStreamDetachRoom(ctx context.Context, payload LegStreamPayload) (LegStreamView, error) {
+	var out LegStreamView
+	return out, s.call(ctx, "leg_stream_detach_room", payload, &out)
+}
+
+// LegSiprecStart fork a single call to an external SIPREC recording server
+func (s *EventStream) LegSiprecStart(ctx context.Context, payload RoomSIPRECStartPayload) (Leg, error) {
+	var out Leg
+	return out, s.call(ctx, "leg_siprec_start", payload, &out)
+}
+
+// RoomSiprecStart fork a room's participants to an external SIPREC recording server
+func (s *EventStream) RoomSiprecStart(ctx context.Context, payload RoomSIPRECStartPayload) (Leg, error) {
+	var out Leg
+	return out, s.call(ctx, "room_siprec_start", payload, &out)
+}
+
+// SiprecGet get an inbound SIPREC recording session's participants, streams and metadata
+func (s *EventStream) SiprecGet(ctx context.Context, payload IDPayload) (SIPRECSessionView, error) {
+	var out SIPRECSessionView
+	return out, s.call(ctx, "siprec_get", payload, &out)
 }
 
 // LegRing send a 180 Ringing on a SIP inbound leg
@@ -859,10 +864,34 @@ func (s *EventStream) RoomSTTStop(ctx context.Context, payload IDPayload) (STTSt
 	return out, s.call(ctx, "room_stt_stop", payload, &out)
 }
 
+// LegSTTFinalize flush the speech-to-text buffer on a leg and emit a final transcript without stopping STT
+func (s *EventStream) LegSTTFinalize(ctx context.Context, payload IDPayload) (STTFinalizeResult, error) {
+	var out STTFinalizeResult
+	return out, s.call(ctx, "leg_stt_finalize", payload, &out)
+}
+
 // LegTTS synthesize speech and play it on a leg
 func (s *EventStream) LegTTS(ctx context.Context, payload TTSStartPayload) (TTSStartResult, error) {
 	var out TTSStartResult
 	return out, s.call(ctx, "leg_tts", payload, &out)
+}
+
+// LegTTSPreflight synthesize speech and hold it for a later commit
+func (s *EventStream) LegTTSPreflight(ctx context.Context, payload TTSStartPayload) (TTSStartResult, error) {
+	var out TTSStartResult
+	return out, s.call(ctx, "leg_tts_preflight", payload, &out)
+}
+
+// LegTTSCommit play a staged TTS utterance
+func (s *EventStream) LegTTSCommit(ctx context.Context, payload TTSTargetPayload) (TTSStartResult, error) {
+	var out TTSStartResult
+	return out, s.call(ctx, "leg_tts_commit", payload, &out)
+}
+
+// LegTTSDiscard drop a staged TTS utterance without playing it
+func (s *EventStream) LegTTSDiscard(ctx context.Context, payload TTSTargetPayload) (TTSDiscardResult, error) {
+	var out TTSDiscardResult
+	return out, s.call(ctx, "leg_tts_discard", payload, &out)
 }
 
 // RoomTTS synthesize speech and play it into a room mix
