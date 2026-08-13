@@ -91,6 +91,20 @@ func (r *Room) UpdateRouting(ctx context.Context, req RoomRoutingUpdateRequest) 
 	return &out, r.client.do(ctx, http.MethodPatch, "/rooms/"+r.ID+"/routing", body, &out)
 }
 
+// StartRoomSIPREC fork a room to an external SIPREC recording server
+func (r *Room) StartRoomSIPREC(ctx context.Context, req StartSIPRECRequest) (*Leg, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out Leg
+	if err := r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/siprec", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = r.client
+	return &out, nil
+}
+
 // Play play audio to a room
 func (r *Room) Play(ctx context.Context, req PlaybackRequest) (*PlaybackResponse, error) {
 	body, err := encodeJSON(req)

@@ -2,8 +2,6 @@
 
 package voiceblender
 
-import "encoding/json"
-
 // LegType identifies the type of a voice leg.
 type LegType string
 
@@ -78,6 +76,28 @@ const (
 	EventLegUnhold WebhookEventType = "leg.unhold"
 	// EventLegCommandFailed is the "leg.command_failed" WebhookEventType value.
 	EventLegCommandFailed WebhookEventType = "leg.command_failed"
+	// EventLegStreamAdded is the "leg.stream_added" WebhookEventType value.
+	EventLegStreamAdded WebhookEventType = "leg.stream_added"
+	// EventLegStreamRemoved is the "leg.stream_removed" WebhookEventType value.
+	EventLegStreamRemoved WebhookEventType = "leg.stream_removed"
+	// EventLegStreamRejected is the "leg.stream_rejected" WebhookEventType value.
+	EventLegStreamRejected WebhookEventType = "leg.stream_rejected"
+	// EventLegStreamFailed is the "leg.stream_failed" WebhookEventType value.
+	EventLegStreamFailed WebhookEventType = "leg.stream_failed"
+	// EventLegStreamRoomChanged is the "leg.stream_room_changed" WebhookEventType value.
+	EventLegStreamRoomChanged WebhookEventType = "leg.stream_room_changed"
+	// EventLegStreamRoleChanged is the "leg.stream_role_changed" WebhookEventType value.
+	EventLegStreamRoleChanged WebhookEventType = "leg.stream_role_changed"
+	// EventSiprecSessionStarted is the "siprec.session_started" WebhookEventType value.
+	EventSiprecSessionStarted WebhookEventType = "siprec.session_started"
+	// EventSiprecSessionEnded is the "siprec.session_ended" WebhookEventType value.
+	EventSiprecSessionEnded WebhookEventType = "siprec.session_ended"
+	// EventSiprecMetadataUpdated is the "siprec.metadata_updated" WebhookEventType value.
+	EventSiprecMetadataUpdated WebhookEventType = "siprec.metadata_updated"
+	// EventSiprecParticipantJoined is the "siprec.participant_joined" WebhookEventType value.
+	EventSiprecParticipantJoined WebhookEventType = "siprec.participant_joined"
+	// EventSiprecParticipantLeft is the "siprec.participant_left" WebhookEventType value.
+	EventSiprecParticipantLeft WebhookEventType = "siprec.participant_left"
 	// EventDTMFReceived is the "dtmf.received" WebhookEventType value.
 	EventDTMFReceived WebhookEventType = "dtmf.received"
 	// EventRTTReceived is the "rtt.received" WebhookEventType value.
@@ -98,6 +118,10 @@ const (
 	EventTTSFinished WebhookEventType = "tts.finished"
 	// EventTTSError is the "tts.error" WebhookEventType value.
 	EventTTSError WebhookEventType = "tts.error"
+	// EventTTSStaged is the "tts.staged" WebhookEventType value.
+	EventTTSStaged WebhookEventType = "tts.staged"
+	// EventTTSDiscarded is the "tts.discarded" WebhookEventType value.
+	EventTTSDiscarded WebhookEventType = "tts.discarded"
 	// EventRecordingStarted is the "recording.started" WebhookEventType value.
 	EventRecordingStarted WebhookEventType = "recording.started"
 	// EventRecordingFinished is the "recording.finished" WebhookEventType value.
@@ -132,6 +156,8 @@ const (
 	EventLegRoleChanged WebhookEventType = "leg.role_changed"
 	// EventSTTText is the "stt.text" WebhookEventType value.
 	EventSTTText WebhookEventType = "stt.text"
+	// EventSTTTurn is the "stt.turn" WebhookEventType value.
+	EventSTTTurn WebhookEventType = "stt.turn"
 	// EventAgentConnected is the "agent.connected" WebhookEventType value.
 	EventAgentConnected WebhookEventType = "agent.connected"
 	// EventAgentDisconnected is the "agent.disconnected" WebhookEventType value.
@@ -157,9 +183,6 @@ const (
 	// EventSIPOutboundRegistrationExpired is the "sip.outbound_registration_expired" WebhookEventType value.
 	EventSIPOutboundRegistrationExpired WebhookEventType = "sip.outbound_registration_expired"
 )
-
-// OfferedCodec is referenced in the spec but not fully defined; use json.RawMessage to decode.
-type OfferedCodec = json.RawMessage
 
 // Leg is a leg.
 type Leg struct {
