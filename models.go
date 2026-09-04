@@ -212,7 +212,9 @@ type Leg struct {
 	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
 	// Custom protocol headers exposed by the leg's transport — X-/P- headers from a SIP INVITE, the WebSocket upgrade request, or supplied at outbound dial time.
 	Headers map[string]string `json:"headers,omitempty"`
-	client  *Client
+	// Opaque application JSON attached to the leg. Any JSON value is accepted (object, array, string, number, boolean). It is echoed on the leg view and carried at the top level of every event published for this leg, so external state can be correlated without keeping a leg_id lookup table. Capped by CUSTOM_DATA_MAX_BYTES (default 1024 bytes, 0 = unlimited).
+	CustomData interface{} `json:"custom_data,omitempty"`
+	client     *Client
 }
 
 // Room is a room.

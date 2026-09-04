@@ -108,7 +108,7 @@ func handle(ctx context.Context, log *slog.Logger, client *voiceblender.Client, 
 		}
 	} else {
 		callLog.Info("sending 180 ringing")
-		if _, err := leg.Ring(ctx); err != nil {
+		if _, err := leg.Ring(ctx, voiceblender.RingLegRequest{}); err != nil {
 			callLog.Error("ring", "error", err)
 			_, _ = leg.Hangup(context.Background(), voiceblender.DeleteLegRequest{})
 			return

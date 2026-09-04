@@ -670,12 +670,18 @@ type STTTextEvent struct {
 	// Room identifier.
 	RoomID string `json:"room_id,omitempty"`
 	AppID  string `json:"app_id,omitempty"`
+	// Which of the leg's audio streams this came from. Empty when the leg's audio is the call itself; set for a recording session, where each stream is a different party. Resolve it through GET /v1/legs/{id}/siprec.
+	StreamID string `json:"stream_id,omitempty"`
 	// Transcribed text.
 	Text string `json:"text,omitempty"`
 	// Whether this is a final or partial transcript.
 	IsFinal bool `json:"is_final,omitempty"`
 	// Whether the speaker stopped talking, as opposed to is_final's 'this segment will not change again'. Deepgram only; always false for providers that do not report it.
 	SpeechFinal bool `json:"speech_final,omitempty"`
+	// Where in the stream this was said, in milliseconds from the first audio the transcriber was given. Absent when the provider reports no timing. Not the same as the event's arrival time, which is when the provider finished rather than when the words were spoken.
+	AudioStartMs int `json:"audio_start_ms,omitempty"`
+	// End of the span audio_start_ms opens.
+	AudioEndMs int `json:"audio_end_ms,omitempty"`
 }
 
 // STTTurnEvent is fired when: speech-to-text turn boundary
@@ -686,6 +692,8 @@ type STTTurnEvent struct {
 	// Room identifier.
 	RoomID string `json:"room_id,omitempty"`
 	AppID  string `json:"app_id,omitempty"`
+	// Which of the leg's audio streams this turn belongs to. Empty when the leg's audio is the call itself. See stt.text.stream_id.
+	StreamID string `json:"stream_id,omitempty"`
 	// Turn boundary: start_of_turn, update, eager_end_of_turn, turn_resumed or end_of_turn (Deepgram Flux), or utterance_end (Deepgram, when utterance_end_ms is set). New values may be added.
 	TurnEvent string `json:"event,omitempty"`
 	// Index of the turn within the session, incrementing after each end_of_turn.

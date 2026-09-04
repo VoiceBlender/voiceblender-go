@@ -166,7 +166,7 @@ func bridge(ctx context.Context, log *slog.Logger, client *voiceblender.Client, 
 			// Outbound got 180; mirror as 180 to the caller. ringLeg is
 			// idempotent so re-sends from the upstream are tolerated.
 			log.Info("outbound 180 — ringing inbound", "outbound", outbound.ID, "inbound", inbound.ID)
-			if _, err := inbound.Ring(ctx); err != nil {
+			if _, err := inbound.Ring(ctx, voiceblender.RingLegRequest{}); err != nil {
 				// Often the leg is past ringing state by the time a duplicate
 				// 180 arrives — log at warn, don't tear down.
 				log.Warn("ring inbound", "leg_id", inbound.ID, "error", err)
