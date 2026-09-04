@@ -76,9 +76,13 @@ func (l *Leg) Answer(ctx context.Context, req AnswerLegRequest) (*StatusResponse
 }
 
 // Ring send 180 Ringing on a ringing inbound SIP leg (asynchronous)
-func (l *Leg) Ring(ctx context.Context) (*StatusResponse, error) {
+func (l *Leg) Ring(ctx context.Context, req RingLegRequest) (*StatusResponse, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
 	var out StatusResponse
-	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/ring", nil, &out)
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/ring", body, &out)
 }
 
 // ChallengeLeg challenge a ringing inbound SIP leg with a 401 digest auth request
@@ -111,6 +115,18 @@ func (l *Leg) Mute(ctx context.Context) (*StatusResponse, error) {
 func (l *Leg) Unmute(ctx context.Context) (*StatusResponse, error) {
 	var out StatusResponse
 	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/mute", nil, &out)
+}
+
+// DeafLeg deafen a leg
+func (l *Leg) DeafLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/deaf", nil, &out)
+}
+
+// UndeafLeg undeafen a leg
+func (l *Leg) UndeafLeg(ctx context.Context) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/deaf", nil, &out)
 }
 
 // Hold put a SIP call on hold (asynchronous)
@@ -471,6 +487,30 @@ func (l *Leg) SetRole(ctx context.Context, req SetLegRoleRequest) (*Leg, error) 
 	}
 	var out Leg
 	if err := l.client.do(ctx, http.MethodPatch, "/legs/"+l.ID+"/role", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = l.client
+	return &out, nil
+}
+
+// SetLegCustomData replace a leg's custom data
+func (l *Leg) SetLegCustomData(ctx context.Context, req SetLegCustomDataRequest) (*Leg, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out Leg
+	if err := l.client.do(ctx, http.MethodPut, "/legs/"+l.ID+"/custom-data", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = l.client
+	return &out, nil
+}
+
+// DeleteLegCustomData clear a leg's custom data
+func (l *Leg) DeleteLegCustomData(ctx context.Context) (*Leg, error) {
+	var out Leg
+	if err := l.client.do(ctx, http.MethodDelete, "/legs/"+l.ID+"/custom-data", nil, &out); err != nil {
 		return nil, err
 	}
 	out.client = l.client

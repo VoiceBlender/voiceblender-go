@@ -65,6 +65,44 @@ func (r *Room) RemoveLeg(ctx context.Context, legID string) (*StatusResponse, er
 	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/legs/"+legID, nil, &out)
 }
 
+// ListRoomBridges list bridges involving this room
+func (r *Room) ListRoomBridges(ctx context.Context) ([]BridgeView, error) {
+	var out []BridgeView
+	return out, r.client.do(ctx, http.MethodGet, "/rooms/"+r.ID+"/bridges", nil, &out)
+}
+
+// CreateRoomBridge bridge this room's mixer to another room's mixer
+func (r *Room) CreateRoomBridge(ctx context.Context, req CreateRoomBridgeRequest) (*BridgeView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out BridgeView
+	return &out, r.client.do(ctx, http.MethodPost, "/rooms/"+r.ID+"/bridges", body, &out)
+}
+
+// GetRoomBridge get a bridge involving this room
+func (r *Room) GetRoomBridge(ctx context.Context, bridgeID string) (*BridgeView, error) {
+	var out BridgeView
+	return &out, r.client.do(ctx, http.MethodGet, "/rooms/"+r.ID+"/bridges/"+bridgeID, nil, &out)
+}
+
+// UpdateRoomBridge change a bridge's audio flow direction
+func (r *Room) UpdateRoomBridge(ctx context.Context, bridgeID string, req UpdateRoomBridgeRequest) (*BridgeView, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out BridgeView
+	return &out, r.client.do(ctx, http.MethodPatch, "/rooms/"+r.ID+"/bridges/"+bridgeID, body, &out)
+}
+
+// DeleteRoomBridge tear down a bridge
+func (r *Room) DeleteRoomBridge(ctx context.Context, bridgeID string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, r.client.do(ctx, http.MethodDelete, "/rooms/"+r.ID+"/bridges/"+bridgeID, nil, &out)
+}
+
 // GetRouting get the room's audio routing matrix
 func (r *Room) GetRouting(ctx context.Context) (*RoomRoutingView, error) {
 	var out RoomRoutingView

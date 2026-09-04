@@ -8,6 +8,8 @@
 //   - legs.go      — Client methods for /legs endpoints
 //   - rooms.go     — Client methods for /rooms endpoints
 //   - webrtc.go    — Client methods for /webrtc endpoints
+//   - trunks.go    — Client methods for /sip/trunks endpoints
+//   - registrations.go — Client methods for /sip/registrations endpoints
 //
 // PlaybackRequest (url/tone mutual exclusion + custom MarshalJSON) is kept in
 // the hand-maintained playback.go and is not touched by this tool.
@@ -1167,6 +1169,19 @@ var methodNameOverrides = map[string]string{
 	"agentRoomDeepgram":   "DeepgramAgent",
 	"agentRoomMessage":    "AgentMessage",
 
+	// SIP trunks / registrations: operationIds embed the "SIP" acronym in a
+	// way toCamel cannot split, and the registration-attempt names are
+	// shortened to match their VSI counterparts in vsi.go.
+	"createSIPTrunk":                  "CreateSIPTrunk",
+	"listSIPTrunks":                   "ListSIPTrunks",
+	"getSIPTrunk":                     "GetSIPTrunk",
+	"deleteSIPTrunk":                  "DeleteSIPTrunk",
+	"listSIPRegistrations":            "ListSIPRegistrations",
+	"deleteSIPRegistration":           "DeleteSIPRegistration",
+	"challengeSIPRegistrationAttempt": "ChallengeRegistration",
+	"acceptSIPRegistrationAttempt":    "AcceptRegistration",
+	"rejectSIPRegistrationAttempt":    "RejectRegistration",
+
 	// Other Leg-scoped operationIds that don't carry the suffix
 	// (sendDTMF, getICECandidates, addICECandidate) keep their toCamel default
 	// and become methods on *Leg automatically: SendDTMF, GetICECandidates,
@@ -1177,6 +1192,13 @@ var methodNameOverrides = map[string]string{
 // which should still be emitted as a Client method (not on *Leg / *Room).
 // getLeg and getRoom are the canonical "fetch resource by ID" calls, so they
 // stay on *Client where callers naturally invoke them with just the ID.
+// pathEscapeParams: operationId → path params that must be percent-encoded
+// before being spliced into the URL. An AOR is a full SIP URI, so its ":" and
+// "@" have to be escaped for the server to match the binding.
+var pathEscapeParams = map[string][]string{
+	"deleteSIPRegistration": {"aor"},
+}
+
 var forceClientReceiver = map[string]bool{
 	"getLeg":  true,
 	"getRoom": true,
@@ -1218,9 +1240,11 @@ var skipOperations = map[string]bool{
 
 // tagFile maps an OpenAPI tag to the output Go filename.
 var tagFile = map[string]string{
-	"Legs":   "legs.go",
-	"Rooms":  "rooms.go",
-	"WebRTC": "webrtc.go",
+	"Legs":              "legs.go",
+	"Rooms":             "rooms.go",
+	"WebRTC":            "webrtc.go",
+	"SIP Trunks":        "trunks.go",
+	"SIP Registrations": "registrations.go",
 }
 
 // extractOps walks the parsed paths and returns operations grouped by tag.
@@ -1288,8 +1312,9 @@ func extractOps(paths orderedPaths) []opInfo {
 			if override, ok := responseTypeOverrides[op.OperationID]; ok {
 				info.respType = override
 			} else {
-				// Check 200 then 201 response.
-				for _, code := range []string{"200", "201"} {
+				// Check 200, then 201/202 (async accepts that still
+				// carry a body, e.g. createSIPTrunk).
+				for _, code := range []string{"200", "201", "202"} {
 					resp, ok := op.Responses[code]
 					if !ok || resp.Content == nil {
 						continue
@@ -1365,6 +1390,13 @@ func genClientFile(ops []opInfo) []byte {
 			receiver = "(c *Client)"
 		}
 		_ = recvVar
+
+		for _, p := range pathEscapeParams[op.operationID] {
+			if pathSubs == nil {
+				pathSubs = map[string]string{}
+			}
+			pathSubs[p] = "url.PathEscape(" + p + ")"
+		}
 
 		// Build godoc comment.
 		if op.summary != "" {
@@ -1444,7 +1476,7 @@ func genClientFile(ops []opInfo) []byte {
 		b.WriteString("}\n\n")
 	}
 
-	return fmtGo(composeFile(generatedHeader, b.Bytes(), "context", "net/http"))
+	return fmtGo(composeFile(generatedHeader, b.Bytes(), "context", "net/http", "net/url"))
 }
 
 // ── AsyncAPI / VSI generation ─────────────────────────────────────────────────

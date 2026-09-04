@@ -102,6 +102,7 @@ type AnswerLegPayload struct {
 	SpeechDetection bool              `json:"speech_detection,omitempty"`
 	Codec           string            `json:"codec,omitempty"`
 	Streams         []AnswerLegStream `json:"streams,omitempty"`
+	CustomData      interface{}       `json:"custom_data,omitempty"`
 }
 
 // BridgeCreatePayload is a bridge create payload.
@@ -189,8 +190,9 @@ type DeleteRegistrationPayload struct {
 
 // EarlyMediaPayload is a early media payload.
 type EarlyMediaPayload struct {
-	ID    string `json:"id"`
-	Codec string `json:"codec,omitempty"`
+	ID         string      `json:"id"`
+	Codec      string      `json:"codec,omitempty"`
+	CustomData interface{} `json:"custom_data,omitempty"`
 }
 
 // IDPayload is a ID payload.
@@ -337,6 +339,12 @@ type RejectRegistrationPayload struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// RingLegPayload is a ring leg payload.
+type RingLegPayload struct {
+	ID         string      `json:"id"`
+	CustomData interface{} `json:"custom_data,omitempty"`
+}
+
 // RoomLegPayload is a room leg payload.
 type RoomLegPayload struct {
 	RoomID string `json:"room_id"`
@@ -405,6 +413,12 @@ type STTStartRoomResult struct {
 // STTStopResult is a STT stop result.
 type STTStopResult struct {
 	Status string `json:"status"`
+}
+
+// SetLegCustomDataPayload is a set leg custom data payload.
+type SetLegCustomDataPayload struct {
+	ID         string      `json:"id"`
+	CustomData interface{} `json:"custom_data"`
 }
 
 // SetLegRolePayload is a set leg role payload.
@@ -678,6 +692,18 @@ func (s *EventStream) SetLegRole(ctx context.Context, payload SetLegRolePayload)
 	return out, s.call(ctx, "set_leg_role", payload, &out)
 }
 
+// SetLegCustomData replace a leg's custom_data (carried on every subsequent event for the leg)
+func (s *EventStream) SetLegCustomData(ctx context.Context, payload SetLegCustomDataPayload) (Leg, error) {
+	var out Leg
+	return out, s.call(ctx, "set_leg_custom_data", payload, &out)
+}
+
+// DeleteLegCustomData clear a leg's custom_data
+func (s *EventStream) DeleteLegCustomData(ctx context.Context, payload IDPayload) (Leg, error) {
+	var out Leg
+	return out, s.call(ctx, "delete_leg_custom_data", payload, &out)
+}
+
 // LegStreamList list a SIP leg's negotiated audio streams
 func (s *EventStream) LegStreamList(ctx context.Context, payload IDPayload) ([]LegStreamView, error) {
 	var out []LegStreamView
@@ -739,7 +765,7 @@ func (s *EventStream) SiprecGet(ctx context.Context, payload IDPayload) (SIPRECS
 }
 
 // LegRing send a 180 Ringing on a SIP inbound leg
-func (s *EventStream) LegRing(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
+func (s *EventStream) LegRing(ctx context.Context, payload RingLegPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "leg_ring", payload, &out)
 }
