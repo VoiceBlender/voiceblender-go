@@ -493,6 +493,20 @@ func (l *Leg) SetRole(ctx context.Context, req SetLegRoleRequest) (*Leg, error) 
 	return &out, nil
 }
 
+// SetLegFilters replace a leg's audio filter chain
+func (l *Leg) SetLegFilters(ctx context.Context, req SetLegFiltersRequest) (*Leg, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out Leg
+	if err := l.client.do(ctx, http.MethodPut, "/legs/"+l.ID+"/filters", body, &out); err != nil {
+		return nil, err
+	}
+	out.client = l.client
+	return &out, nil
+}
+
 // SetLegCustomData replace a leg's custom data
 func (l *Leg) SetLegCustomData(ctx context.Context, req SetLegCustomDataRequest) (*Leg, error) {
 	body, err := encodeJSON(req)
