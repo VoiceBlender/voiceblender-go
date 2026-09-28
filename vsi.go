@@ -10,6 +10,7 @@ import "context"
 type AcceptRegistrationPayload struct {
 	ID         string `json:"id"`
 	MaxExpires int    `json:"max_expires,omitempty"`
+	AppID      string `json:"app_id,omitempty"`
 }
 
 // AcceptTransferPayload is a accept transfer payload.
@@ -103,6 +104,7 @@ type AnswerLegPayload struct {
 	Codec           string            `json:"codec,omitempty"`
 	Streams         []AnswerLegStream `json:"streams,omitempty"`
 	CustomData      interface{}       `json:"custom_data,omitempty"`
+	Filters         []FilterSpec      `json:"filters,omitempty"`
 }
 
 // BridgeCreatePayload is a bridge create payload.
@@ -141,6 +143,7 @@ type ChallengeLegPayload struct {
 	Algorithm  string   `json:"algorithm,omitempty"`
 	Qop        []string `json:"qop,omitempty"`
 	MaxExpires int      `json:"max_expires,omitempty"`
+	AppID      string   `json:"app_id,omitempty"`
 }
 
 // ChallengeRegistrationPayload is a challenge registration payload.
@@ -153,6 +156,7 @@ type ChallengeRegistrationPayload struct {
 	Algorithm  string   `json:"algorithm,omitempty"`
 	Qop        []string `json:"qop,omitempty"`
 	MaxExpires int      `json:"max_expires,omitempty"`
+	AppID      string   `json:"app_id,omitempty"`
 }
 
 // CompleteTransferPayload is a complete transfer payload.
@@ -419,6 +423,12 @@ type STTStopResult struct {
 type SetLegCustomDataPayload struct {
 	ID         string      `json:"id"`
 	CustomData interface{} `json:"custom_data"`
+}
+
+// SetLegFiltersPayload is a set leg filters payload.
+type SetLegFiltersPayload struct {
+	ID      string       `json:"id"`
+	Filters []FilterSpec `json:"filters"`
 }
 
 // SetLegRolePayload is a set leg role payload.
@@ -690,6 +700,12 @@ func (s *EventStream) RoomRoutingUpdate(ctx context.Context, payload RoomRouting
 func (s *EventStream) SetLegRole(ctx context.Context, payload SetLegRolePayload) (Leg, error) {
 	var out Leg
 	return out, s.call(ctx, "set_leg_role", payload, &out)
+}
+
+// SetLegFilters replace the audio filter chain running on a live leg
+func (s *EventStream) SetLegFilters(ctx context.Context, payload SetLegFiltersPayload) (Leg, error) {
+	var out Leg
+	return out, s.call(ctx, "set_leg_filters", payload, &out)
 }
 
 // SetLegCustomData replace a leg's custom_data (carried on every subsequent event for the leg)
