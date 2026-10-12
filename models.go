@@ -76,6 +76,10 @@ const (
 	EventLegUnhold WebhookEventType = "leg.unhold"
 	// EventLegCommandFailed is the "leg.command_failed" WebhookEventType value.
 	EventLegCommandFailed WebhookEventType = "leg.command_failed"
+	// EventLegICEInterrupted is the "leg.ice_interrupted" WebhookEventType value.
+	EventLegICEInterrupted WebhookEventType = "leg.ice_interrupted"
+	// EventLegICERestored is the "leg.ice_restored" WebhookEventType value.
+	EventLegICERestored WebhookEventType = "leg.ice_restored"
 	// EventLegStreamAdded is the "leg.stream_added" WebhookEventType value.
 	EventLegStreamAdded WebhookEventType = "leg.stream_added"
 	// EventLegStreamRemoved is the "leg.stream_removed" WebhookEventType value.
@@ -182,6 +186,10 @@ const (
 	EventSIPOutboundRegistrationFailed WebhookEventType = "sip.outbound_registration_failed"
 	// EventSIPOutboundRegistrationExpired is the "sip.outbound_registration_expired" WebhookEventType value.
 	EventSIPOutboundRegistrationExpired WebhookEventType = "sip.outbound_registration_expired"
+	// EventSIPTrunkUp is the "sip.trunk_up" WebhookEventType value.
+	EventSIPTrunkUp WebhookEventType = "sip.trunk_up"
+	// EventSIPTrunkDown is the "sip.trunk_down" WebhookEventType value.
+	EventSIPTrunkDown WebhookEventType = "sip.trunk_down"
 )
 
 // Leg is a leg.
@@ -208,9 +216,9 @@ type Leg struct {
 	Role string `json:"role,omitempty"`
 	// Application identifier for event stream filtering.
 	AppID string `json:"app_id,omitempty"`
-	// Deprecated: X-* headers from the inbound INVITE. Only present on sip_inbound legs. Use `headers` for new code; it carries the same map plus surfaces handshake headers for websocket legs.
+	// Deprecated: X-/P- headers from the inbound INVITE. Only present on sip_inbound legs. Use `headers` for new code; it carries the same map plus surfaces handshake headers for websocket legs.
 	SIPHeaders map[string]string `json:"sip_headers,omitempty"`
-	// Custom protocol headers exposed by the leg's transport — X-/P- headers from a SIP INVITE, the WebSocket upgrade request, or supplied at outbound dial time.
+	// Custom protocol headers exposed by the leg's transport — X-/P- headers from a SIP INVITE, the WebSocket upgrade request, or supplied at outbound dial time. On an inbound INVITE the prefix is matched in any case and names are reported as received.
 	Headers map[string]string `json:"headers,omitempty"`
 	// Opaque application JSON attached to the leg. Any JSON value is accepted (object, array, string, number, boolean). It is echoed on the leg view and carried at the top level of every event published for this leg, so external state can be correlated without keeping a leg_id lookup table. Capped by CUSTOM_DATA_MAX_BYTES (default 1024 bytes, 0 = unlimited).
 	CustomData interface{} `json:"custom_data,omitempty"`

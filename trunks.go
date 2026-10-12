@@ -13,7 +13,7 @@ func (c *Client) ListSIPTrunks(ctx context.Context) (*TrunksListResponse, error)
 	return &out, c.do(ctx, http.MethodGet, "/sip/trunks", nil, &out)
 }
 
-// CreateSIPTrunk create an outbound SIP trunk (REGISTER or static peering)
+// CreateSIPTrunk create a SIP trunk (REGISTER or static peering)
 func (c *Client) CreateSIPTrunk(ctx context.Context, req CreateTrunkRequest) (*CreateTrunkResponse, error) {
 	body, err := encodeJSON(req)
 	if err != nil {
@@ -29,7 +29,7 @@ func (c *Client) GetSIPTrunk(ctx context.Context, id string) (*TrunkView, error)
 	return &out, c.do(ctx, http.MethodGet, "/sip/trunks/"+id, nil, &out)
 }
 
-// DeleteSIPTrunk unregister and remove a SIP trunk
+// DeleteSIPTrunk remove a SIP trunk
 func (c *Client) DeleteSIPTrunk(ctx context.Context, id string) (*StatusResponse, error) {
 	var out StatusResponse
 	return &out, c.do(ctx, http.MethodDelete, "/sip/trunks/"+id, nil, &out)

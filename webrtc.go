@@ -23,6 +23,16 @@ func (l *Leg) AddICECandidate(ctx context.Context, req ICECandidateInit) (*Statu
 	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/ice-candidates", body, &out)
 }
 
+// RestartICE restart ICE on a WebRTC leg
+func (l *Leg) RestartICE(ctx context.Context, req WebRTCICERestartRequest) (*WebRTCOfferResult, error) {
+	body, err := encodeJSON(req)
+	if err != nil {
+		return nil, err
+	}
+	var out WebRTCOfferResult
+	return &out, l.client.do(ctx, http.MethodPost, "/legs/"+l.ID+"/ice-restart", body, &out)
+}
+
 // WebRTCOffer establish a WebRTC leg via SDP offer/answer
 func (c *Client) WebRTCOffer(ctx context.Context, req WebRTCOfferRequest) (*WebRTCOfferResponse, error) {
 	body, err := encodeJSON(req)
