@@ -29,7 +29,7 @@ type LegRingingEvent struct {
 	From string `json:"from,omitempty"`
 	// Callee URI (inbound only).
 	To string `json:"to,omitempty"`
-	// X-* custom SIP headers, if present.
+	// X-/P- custom SIP headers (matched in any case, keyed as received), if present.
 	SIPHeaders    map[string]string `json:"sip_headers,omitempty"`
 	OfferedCodecs []OfferedCodec    `json:"offered_codecs,omitempty"`
 	TrunkID       string            `json:"trunk_id,omitempty"`
@@ -65,7 +65,7 @@ type LegDisconnectedEvent struct {
 	LegID string `json:"leg_id,omitempty"`
 	AppID string `json:"app_id,omitempty"`
 	Cdr   struct {
-		// Disconnect reason. Common SIP failures are mapped to named reasons; unmapped 4xx/5xx/6xx codes appear as sip_{code}. This is an open set — treat an unrecognized value as a new reason rather than an error. Known values: api_hangup, room_deleted, remote_bye, caller_cancel, max_duration, session_expired, rtp_timeout, busy, declined, rejected, unavailable, not_found, forbidden, server_error, ring_timeout, unauthorized, timeout, cancelled, not_acceptable, service_unavailable, invite_failed, connect_failed, challenged, transfer_completed, transfer_originate_failed, transfer_connect_failed, bad_answer, siprec_answer_failed, mixer_panic, hangup, peer_slow, connection_reset, ws_error, ws_dial_failed, moq_error, ice_failure, ice_failed, ice_disconnected, livekit_client_initiated, livekit_duplicate_identity, livekit_server_shutdown, livekit_kicked, livekit_room_deleted, livekit_state_mismatch, livekit_join_failure, livekit_migration, livekit_signal_close, livekit_room_closed, livekit_user_unavailable, livekit_user_rejected, livekit_token_expired, livekit_media_failure, livekit_disconnected, livekit_client_closed, livekit_signal_closed, livekit_signal_error, livekit_pc_setup_failed, livekit_add_track_failed, livekit_publisher_failed, livekit_subscriber_failed, livekit_signal_loop_exit, livekit_set_remote_desc_failed, livekit_create_answer_failed, livekit_set_local_desc_failed, livekit_signal_send_failed, livekit_set_publisher_remote_failed, livekit_participant_left.
+		// Disconnect reason. Common SIP failures are mapped to named reasons; unmapped 4xx/5xx/6xx codes appear as sip_{code}. This is an open set — treat an unrecognized value as a new reason rather than an error. Known values: api_hangup, room_deleted, remote_bye, caller_cancel, max_duration, session_expired, rtp_timeout, busy, declined, rejected, unavailable, not_found, forbidden, server_error, ring_timeout, unauthorized, timeout, cancelled, not_acceptable, service_unavailable, invite_failed, connect_failed, challenged, transfer_completed, transfer_originate_failed, transfer_connect_failed, bad_answer, siprec_answer_failed, mixer_panic, hangup, peer_slow, connection_reset, ws_error, ws_dial_failed, moq_error, ice_failure, ice_failed, ice_disconnected, peer_closed, dtls_failed, livekit_client_initiated, livekit_duplicate_identity, livekit_server_shutdown, livekit_kicked, livekit_room_deleted, livekit_state_mismatch, livekit_join_failure, livekit_migration, livekit_signal_close, livekit_room_closed, livekit_user_unavailable, livekit_user_rejected, livekit_token_expired, livekit_media_failure, livekit_disconnected, livekit_client_closed, livekit_signal_closed, livekit_signal_error, livekit_pc_setup_failed, livekit_add_track_failed, livekit_publisher_failed, livekit_subscriber_failed, livekit_signal_loop_exit, livekit_set_remote_desc_failed, livekit_create_answer_failed, livekit_set_local_desc_failed, livekit_signal_send_failed, livekit_set_publisher_remote_failed, livekit_participant_left.
 		Reason string `json:"reason"`
 		// Seconds from leg creation to disconnect.
 		DurationTotal float64 `json:"duration_total"`
@@ -162,6 +162,26 @@ type LegCommandFailedEvent struct {
 	AppID   string `json:"app_id,omitempty"`
 	Command string `json:"command,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// LegICEInterruptedEvent is fired when: webRTC leg lost ICE connectivity; the leg is kept so the peer can restart ICE
+type LegICEInterruptedEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+	// Leg type; always "webrtc".
+	LegType string `json:"leg_type,omitempty"`
+}
+
+// LegICERestoredEvent is fired when: webRTC leg regained ICE connectivity after leg.ice_interrupted
+type LegICERestoredEvent struct {
+	Event
+	// Leg identifier.
+	LegID string `json:"leg_id,omitempty"`
+	AppID string `json:"app_id,omitempty"`
+	// Leg type; always "webrtc".
+	LegType string `json:"leg_type,omitempty"`
 }
 
 // LegStreamAddedEvent is fired when: an additional m=audio stream was negotiated on a live dialog
@@ -872,6 +892,28 @@ type SIPOutboundRegistrationExpiredEvent struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+// SIPTrunkUpEvent is fired when: sIP trunk peer answered its OPTIONS health check (first answer, or recovery after sip.trunk_down)
+type SIPTrunkUpEvent struct {
+	Event
+	AppID      string `json:"app_id,omitempty"`
+	TrunkID    string `json:"trunk_id,omitempty"`
+	TrunkType  string `json:"trunk_type,omitempty"`
+	PeerURI    string `json:"peer_uri,omitempty"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// SIPTrunkDownEvent is fired when: sIP trunk peer failed its OPTIONS health check (no reply, transport error, 408, or 5xx other than 501)
+type SIPTrunkDownEvent struct {
+	Event
+	AppID      string `json:"app_id,omitempty"`
+	TrunkID    string `json:"trunk_id,omitempty"`
+	TrunkType  string `json:"trunk_type,omitempty"`
+	PeerURI    string `json:"peer_uri,omitempty"`
+	StatusCode int    `json:"status_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 // ParseEvent unmarshals raw JSON into the appropriate typed event struct.
 func ParseEvent(data []byte) (interface{}, error) {
 	var base Event
@@ -953,6 +995,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventLegCommandFailed:
 		var e LegCommandFailedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegICEInterrupted:
+		var e LegICEInterruptedEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventLegICERestored:
+		var e LegICERestoredEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
@@ -1271,6 +1325,18 @@ func ParseEvent(data []byte) (interface{}, error) {
 		return &e, nil
 	case EventSIPOutboundRegistrationExpired:
 		var e SIPOutboundRegistrationExpiredEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPTrunkUp:
+		var e SIPTrunkUpEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case EventSIPTrunkDown:
+		var e SIPTrunkDownEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

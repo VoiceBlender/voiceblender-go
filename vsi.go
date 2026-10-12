@@ -469,9 +469,11 @@ type TTSTargetPayload struct {
 
 // TransferLegPayload is a transfer leg payload.
 type TransferLegPayload struct {
-	ID            string `json:"id"`
-	Target        string `json:"target"`
-	ReplacesLegID string `json:"replaces_leg_id,omitempty"`
+	ID             string            `json:"id"`
+	Target         string            `json:"target"`
+	ReplacesLegID  string            `json:"replaces_leg_id,omitempty"`
+	ReferToHeaders map[string]string `json:"refer_to_headers,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
 }
 
 // TransferLegResult is a transfer leg result.
@@ -488,6 +490,12 @@ type VSIStatusResponse struct {
 type VSIWebRTCAddCandidatePayload struct {
 	ID        string           `json:"id"`
 	Candidate ICECandidateInit `json:"candidate"`
+}
+
+// VSIWebRTCICERestartPayload is a VSI web RTCICE restart payload.
+type VSIWebRTCICERestartPayload struct {
+	ID  string `json:"id"`
+	SDP string `json:"sdp"`
 }
 
 // ── VSI command methods on *EventStream ───────────────────────────────────
@@ -610,6 +618,12 @@ func (s *EventStream) WebRTCAddCandidate(ctx context.Context, payload VSIWebRTCA
 func (s *EventStream) WebRTCGetCandidates(ctx context.Context, payload IDPayload) (WebRTCCandidatesResult, error) {
 	var out WebRTCCandidatesResult
 	return out, s.call(ctx, "webrtc_get_candidates", payload, &out)
+}
+
+// WebRTCICERestart restart ICE on a WebRTC leg
+func (s *EventStream) WebRTCICERestart(ctx context.Context, payload VSIWebRTCICERestartPayload) (WebRTCOfferResult, error) {
+	var out WebRTCOfferResult
+	return out, s.call(ctx, "webrtc_ice_restart", payload, &out)
 }
 
 // ListRooms list all rooms
@@ -1080,7 +1094,7 @@ func (s *EventStream) RejectRegistration(ctx context.Context, payload RejectRegi
 	return out, s.call(ctx, "reject_registration", payload, &out)
 }
 
-// CreateSIPTrunk create an outbound SIP trunk (REGISTER or static peering)
+// CreateSIPTrunk create a SIP trunk (REGISTER or static peering)
 func (s *EventStream) CreateSIPTrunk(ctx context.Context, payload CreateTrunkRequest) (CreateTrunkResponse, error) {
 	var out CreateTrunkResponse
 	return out, s.call(ctx, "create_sip_trunk", payload, &out)
@@ -1098,7 +1112,7 @@ func (s *EventStream) GetSIPTrunk(ctx context.Context, payload IDPayload) (Trunk
 	return out, s.call(ctx, "get_sip_trunk", payload, &out)
 }
 
-// DeleteSIPTrunk unregister and remove a SIP trunk
+// DeleteSIPTrunk remove a SIP trunk
 func (s *EventStream) DeleteSIPTrunk(ctx context.Context, payload IDPayload) (VSIStatusResponse, error) {
 	var out VSIStatusResponse
 	return out, s.call(ctx, "delete_sip_trunk", payload, &out)
