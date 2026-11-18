@@ -190,6 +190,8 @@ const (
 	EventSIPTrunkUp WebhookEventType = "sip.trunk_up"
 	// EventSIPTrunkDown is the "sip.trunk_down" WebhookEventType value.
 	EventSIPTrunkDown WebhookEventType = "sip.trunk_down"
+	// EventInstanceStatusChanged is the "instance.status_changed" WebhookEventType value.
+	EventInstanceStatusChanged WebhookEventType = "instance.status_changed"
 )
 
 // Leg is a leg.
@@ -198,7 +200,7 @@ type Leg struct {
 	InstanceID string `json:"instance_id,omitempty"`
 	// Unique leg identifier (UUID).
 	ID string `json:"id"`
-	// Leg type.
+	// Leg type. Covers inbound and outbound legs of every transport; `POST /legs` creates only some of them (see `CreateLegRequest.type`).
 	Type LegType `json:"type"`
 	// Leg state.
 	State LegState `json:"state"`

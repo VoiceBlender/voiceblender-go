@@ -78,7 +78,7 @@ type ChallengeRequest struct {
 
 // CreateLegRequest is a create leg request.
 type CreateLegRequest struct {
-	// Leg type.
+	// Transport to dial out on. WebRTC legs cannot be created here: the browser starts them via `POST /webrtc/offer`.
 	Type string `json:"type"`
 	// Destination. For sip legs, a SIP URI (e.g. "sip:alice@example.com"); a "sips:" URI or a ";transport=tls" param sends the INVITE over TLS, and ";transport=tcp" over TCP. For whatsapp legs, an E.164 phone number (with or without '+').
 	To string `json:"to,omitempty"`
@@ -120,6 +120,8 @@ type CreateLegRequest struct {
 	Filters []FilterSpec `json:"filters,omitempty"`
 	// For sip legs: offer Real-Time Text (ITU-T T.140 over RTP per RFC 4103) alongside audio. For websocket legs: enable the bidirectional text-message channel. Default: false.
 	RTT bool `json:"rtt,omitempty"`
+	// SIP outbound only. true offers SDES-SRTP (RFC 4568): every audio section, and the text section when rtt is set, goes out as RTP/SAVP with its own a=crypto keys, and a peer that answers without an accepted key fails the call. false offers plain RTP/AVP. Either value holds for the whole call: a later re-offer on the other transport gets 488. Omit to follow SIP_SRTP, which offers SRTP only when it is "required". Rejected with 400 when it contradicts SIP_SRTP (true under "disabled", false under "required"). The keys travel in the SDP, so send the INVITE over TLS (a "sips:" URI or ";transport=tls").
+	Srtp bool `json:"srtp,omitempty"`
 	// Opaque application JSON attached to the leg. Any JSON value is accepted (object, array, string, number, boolean). It is echoed on the leg view and carried at the top level of every event published for this leg, so external state can be correlated without keeping a leg_id lookup table. Capped by CUSTOM_DATA_MAX_BYTES (default 1024 bytes, 0 = unlimited).
 	CustomData interface{} `json:"custom_data,omitempty"`
 	// SIP outbound only. Extra m=audio sections to offer alongside the call's primary bidirectional audio, so a multi-stream call is established by the first INVITE instead of a follow-up re-INVITE. Each entry binds its own RTP port and may be mixed into its own room. To add a stream to a call that is already up, use POST /v1/legs/{id}/streams instead.
@@ -133,7 +135,7 @@ type CreateLegRequest struct {
 	// On-the-wire PCM sample encoding for websocket legs. v1 only supports `s16le`.
 	SampleFormat string `json:"sample_format,omitempty"`
 	// LiveKit room join parameters (only used when type=livekit_room).
-	Livekit *LiveKitParams `json:"livekit,omitempty"`
+	Livekit interface{} `json:"livekit,omitempty"`
 }
 
 // CreateRoomBridgeRequest is a create room bridge request.
@@ -168,10 +170,12 @@ type CreateTrunkRequest struct {
 	Type string `json:"type"`
 	// Application identifier carried through to every event emitted by this trunk.
 	AppID string `json:"app_id,omitempty"`
+	// SDES-SRTP policy for calls through this trunk, in both directions: outbound calls placed through it (by trunk_id or by from) and inbound calls it claims. Takes the SIP_SRTP values and replaces SIP_SRTP for those calls, stricter or looser: required makes every call through the trunk SRTP, disabled keeps it plain RTP even when SIP_SRTP is required. Omit to follow SIP_SRTP. Inbound calls are claimed by source address, which can be forged over UDP; a trunk that relaxes the server policy should use TLS.
+	Srtp string `json:"srtp,omitempty"`
 	// Required when type == "sip_register". Configures the outbound REGISTER (registrar URI, AOR, digest credentials, expiry).
-	SIPRegister *SIPRegisterTrunkSpec `json:"sip_register,omitempty"`
+	SIPRegister interface{} `json:"sip_register,omitempty"`
 	// Required when type == "ip_ip". Configures static peering with a fixed upstream (peer URI, optional digest credentials, inbound source addresses, OPTIONS health check).
-	IpIp *IPIPTrunkSpec `json:"ip_ip,omitempty"`
+	IpIp interface{} `json:"ip_ip,omitempty"`
 }
 
 // DTMFRequest is a DTMF request.
@@ -332,6 +336,11 @@ type SetLegFiltersRequest struct {
 type SetLegRoleRequest struct {
 	// New routing role for the leg. The room's routing matrix decides which other legs this leg hears and is heard by based on roles. Pass an empty string to clear the role (full mesh).
 	Role string `json:"role"`
+}
+
+// StartDrainRequest is a start drain request.
+type StartDrainRequest struct {
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 }
 
 // StartSIPRECRequest is a start SIPREC request.
@@ -563,6 +572,21 @@ type IPIPTrunkView struct {
 	TlsInsecureSkipVerify      bool     `json:"tls_insecure_skip_verify,omitempty"`
 }
 
+// InstanceStatus is a instance status.
+type InstanceStatus struct {
+	// Instance identifier.
+	InstanceID      string `json:"instance_id,omitempty"`
+	Status          string `json:"status"`
+	Version         string `json:"version,omitempty"`
+	UptimeSeconds   int    `json:"uptime_seconds"`
+	DrainingSince   string `json:"draining_since,omitempty"`
+	DrainSource     string `json:"drain_source,omitempty"`
+	ExitWhenDrained bool   `json:"exit_when_drained"`
+	DrainDeadline   string `json:"drain_deadline,omitempty"`
+	Legs            int    `json:"legs"`
+	Rooms           int    `json:"rooms"`
+}
+
 // LegStreamView is a leg stream view.
 type LegStreamView struct {
 	// Stream identifier, stable for the life of the dialog. The primary stream is always "0".
@@ -587,6 +611,8 @@ type LegStreamView struct {
 	LocalPort int `json:"local_port,omitempty"`
 	// Remote RTP address media is currently sent to.
 	RemoteAddr string `json:"remote_addr,omitempty"`
+	// True while the stream's media is encrypted with SDES-SRTP (RFC 4568). Omitted for plain RTP, and for an added stream until the peer has answered it.
+	Srtp bool `json:"srtp,omitempty"`
 	// The stream's a=label value (RFC 4574), for correlating it with external metadata.
 	Label string `json:"label,omitempty"`
 	// The stream's a=content value (RFC 4796), e.g. "main" for original audio and "alt" for a translated feed.
@@ -612,7 +638,7 @@ type LiveKitParams struct {
 	// Display name for the participant; surfaces in LK Room UIs.
 	ParticipantName string `json:"participant_name,omitempty"`
 	// LiveKit grant flags. Nil pointers default to publish=true, subscribe=true, data=false, admin=false.
-	Permissions *LiveKitPermissions `json:"permissions,omitempty"`
+	Permissions interface{} `json:"permissions,omitempty"`
 	// Go duration string (e.g. "30m", "6h"). Used only when minting. Defaults to LIVEKIT_DEFAULT_TOKEN_TTL (6h).
 	TokenTtl string `json:"token_ttl,omitempty"`
 	// Override LIVEKIT_OPUS_BITRATE for this leg. 6000..510000.
@@ -769,6 +795,8 @@ type SIPRegisterTrunkSpec struct {
 	ExpiresSeconds int `json:"expires_seconds,omitempty"`
 	// Accept this trunk's next-hop certificate without verifying it, for a `sips:` / `;transport=tls` registrar or outbound proxy whose certificate is self-signed, privately signed, or carries no SAN (`x509: certificate relies on legacy Common Name field`). Scoped to that peer's hostname — every other TLS peer is still verified in full, unlike the server-wide `SIP_TLS_INSECURE_SKIP_VERIFY`. Ignored (with a logged warning) when the next hop is not TLS, or when it is named by IP literal: such a dial sends no SNI and cannot be told apart from any other, so use `SIP_TLS_CA_FILE` or `SIP_TLS_INSECURE_SKIP_VERIFY` there. Prefer `SIP_TLS_CA_FILE` when the peer's CA can simply be trusted.
 	TlsInsecureSkipVerify bool `json:"tls_insecure_skip_verify,omitempty"`
+	// Unregister (REGISTER with Expires: 0) when the instance starts draining, so the provider stops sending new calls here, and register again if the drain is cancelled. Calls already up and new outbound calls through the trunk are not affected. Set false for providers that end live calls, or refuse outbound calls, from a client that is no longer registered. Defaults to true.
+	UnregisterOnDrain bool `json:"unregister_on_drain,omitempty"`
 }
 
 // SIPRegisterTrunkView is a SIP register trunk view.
@@ -786,6 +814,7 @@ type SIPRegisterTrunkView struct {
 	Cseq                    int    `json:"cseq,omitempty"`
 	SourceAddress           string `json:"source_address,omitempty"`
 	TlsInsecureSkipVerify   bool   `json:"tls_insecure_skip_verify,omitempty"`
+	UnregisterOnDrain       bool   `json:"unregister_on_drain"`
 }
 
 // STTWord is a STT word.
@@ -798,14 +827,15 @@ type STTWord struct {
 
 // TrunkView is a trunk view.
 type TrunkView struct {
-	ID          string                `json:"id"`
-	Type        string                `json:"type"`
-	AppID       string                `json:"app_id,omitempty"`
-	Status      string                `json:"status"`
-	LastError   string                `json:"last_error,omitempty"`
-	CreatedAt   string                `json:"created_at"`
-	SIPRegister *SIPRegisterTrunkView `json:"sip_register,omitempty"`
-	IpIp        *IPIPTrunkView        `json:"ip_ip,omitempty"`
+	ID          string      `json:"id"`
+	Type        string      `json:"type"`
+	AppID       string      `json:"app_id,omitempty"`
+	Status      string      `json:"status"`
+	LastError   string      `json:"last_error,omitempty"`
+	Srtp        string      `json:"srtp,omitempty"`
+	CreatedAt   string      `json:"created_at"`
+	SIPRegister interface{} `json:"sip_register,omitempty"`
+	IpIp        interface{} `json:"ip_ip,omitempty"`
 }
 
 // TrunksListResponse is a trunks list response.
