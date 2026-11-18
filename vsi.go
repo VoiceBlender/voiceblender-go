@@ -1117,3 +1117,15 @@ func (s *EventStream) DeleteSIPTrunk(ctx context.Context, payload IDPayload) (VS
 	var out VSIStatusResponse
 	return out, s.call(ctx, "delete_sip_trunk", payload, &out)
 }
+
+// StartDrain start draining: refuse new SIP calls and let current calls end
+func (s *EventStream) StartDrain(ctx context.Context, payload StartDrainRequest) (InstanceStatus, error) {
+	var out InstanceStatus
+	return out, s.call(ctx, "start_drain", payload, &out)
+}
+
+// CancelDrain cancel a drain and accept new calls again
+func (s *EventStream) CancelDrain(ctx context.Context) (InstanceStatus, error) {
+	var out InstanceStatus
+	return out, s.call(ctx, "cancel_drain", nil, &out)
+}
